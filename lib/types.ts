@@ -1,6 +1,6 @@
 export type RoundFormat = "Single" | "Greensome" | "Scramble" | "Best ball" | "Foursome";
 export type RoundStatus = "upcoming" | "active" | "completed";
-export type View = "overview" | "players" | "scorecard" | "leaderboard" | "courses";
+export type View = "overview" | "players" | "scorecard" | "leaderboard" | "courses" | "rules";
 export type AttendanceStatus = "Ja" | "Nei" | "Kanskje";
 
 export interface Tee {
@@ -58,4 +58,5 @@ export interface TournamentData {
   courses?: CourseSetup[];
   rounds?: Round[];
   roundHandicaps?: Record<string, number>;
+  houseRules?: string;
 }

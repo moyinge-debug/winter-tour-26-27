@@ -2,6 +2,8 @@
 
 Mobilvennlig turneringsapp for ni runder med spilleradministrasjon, lag, scorekort og sammenlagt leaderboard.
 
+Regler-fanen beskriver spilleformater, poengfordeling, scoreføring og handicapberegning. Admin kan redigere simulator- og husreglene; teksten lagres sammen med turneringsdataene og følger sikkerhetskopien.
+
 ## Kom i gang
 
 ```bash
@@ -21,7 +23,7 @@ Spillerens registrerte handicap er Start-HCP, lagret med én desimal. Turnerings
 
 I lagrunder benytter lagresultatet gjennomsnittlig spillehandicap. Lagets brutto score brukes for hver lagspiller når deres individuelle HCP-utvikling beregnes. Tee-oppsettene har redigerbare, veiledende startverdier; bekreft CR og Slope med golfklubben. Tee-data og score lagres lokalt i nettleserens `localStorage`.
 
-Score kan registreres manuelt eller foreslås fra et bilde med Tesseract.js OCR. OCR kan lese feil, så kontroller alltid tee, spiller og score før du lagrer. Tekstimport av tee-oppsett støtter linjer som `Hvit | Par 72 | CR 73,1 | Slope 132` eller `Hvit 72 73.1 132`.
+Admin kan importere tee-data fra en Golfify-kurside; hentede tee-steder vises først i en forhåndsvisning og lagres først etter bekreftelse. Score kan registreres manuelt eller foreslås fra et bilde med Tesseract.js OCR. OCR kan lese feil, så kontroller alltid tee, spiller og score før du lagrer. Tekstimport av tee-oppsett støtter linjer som `Hvit | Par 72 | CR 73,1 | Slope 132` eller `Hvit 72 73.1 132`.
 
 ## Admin
 

@@ -2,6 +2,7 @@
 
 import {
   ArrowRight,
+  BookOpen,
   CalendarDays,
   Camera,
   Check,
@@ -37,6 +38,7 @@ const DEMO_PLAYER_IDS = new Set(["p1", "p2", "p3", "p4", "p5", "p6"]);
 const DEMO_TEAM_IDS = new Set(["t2a", "t2b", "t2c", "t4a", "t4b", "t4c", "t6a", "t6b", "t6c", "t8a", "t8b", "t8c"]);
 const DEMO_SCORE_IDS = new Set(["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"]);
 const PLAYER_ROSTER_VERSION = 1;
+const DEFAULT_HOUSE_RULES = "Avklar eventuelle gimme-avstander, mulligans og TrackMan-innstillinger med gruppen før runden. Bruk bare regler som turneringsgruppen har vedtatt.";
 const ATTENDANCE_STATUSES: AttendanceStatus[] = ["Ja", "Nei", "Kanskje"];
 const ROUND_FORMATS: RoundFormat[] = ["Single", "Greensome", "Scramble", "Best ball", "Foursome"];
 const NAV_ITEMS: { id: View; label: string; icon: typeof Flag }[] = [
@@ -45,6 +47,7 @@ const NAV_ITEMS: { id: View; label: string; icon: typeof Flag }[] = [
   { id: "scorecard", label: "Scorekort", icon: ClipboardList },
   { id: "leaderboard", label: "Leaderboard", icon: Trophy },
   { id: "courses", label: "Baner & Tee-oppsett", icon: Flag },
+  { id: "rules", label: "Regler", icon: BookOpen },
 ];
 
 type ResultRow = {
@@ -129,6 +132,80 @@ function extractScoreFromText(text: string): number | undefined {
 
   const candidates = [...text.matchAll(/\b(\d{2,3})\b/g)].map((match) => validNumber(match[1])).filter((score): score is number => score !== undefined);
   return candidates.at(-1);
+}
+
+async function preprocessTrackManImage(file: File): Promise<HTMLCanvasElement> {
+  const bitmap = "createImageBitmap" in window
+    ? await createImageBitmap(file)
+    : await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error("Could not decode score image."));
+      image.src = URL.createObjectURL(file);
+    });
+
+  const sourceWidth = bitmap instanceof HTMLImageElement ? bitmap.naturalWidth : bitmap.width;
+  const sourceHeight = bitmap instanceof HTMLImageElement ? bitmap.naturalHeight : bitmap.height;
+  const cropTop = Math.floor(sourceHeight * 0.25);
+  const cropHeight = Math.max(1, Math.ceil(sourceHeight * 0.40));
+  const scale = Math.max(1, 2000 / sourceWidth);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(sourceWidth * scale);
+  canvas.height = Math.ceil(cropHeight * scale);
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) throw new Error("Could not create image processing canvas.");
+
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(bitmap, 0, cropTop, sourceWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+  if ("close" in bitmap) bitmap.close();
+
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const pixels = imageData.data;
+  for (let index = 0; index < pixels.length; index += 4) {
+    const gray = pixels[index] * 0.299 + pixels[index + 1] * 0.587 + pixels[index + 2] * 0.114;
+    const contrasted = Math.max(0, Math.min(255, (gray - 128) * 2.4 + 128));
+    const inverted = 255 - contrasted;
+    pixels[index] = inverted;
+    pixels[index + 1] = inverted;
+    pixels[index + 2] = inverted;
+  }
+  context.putImageData(imageData, 0, 0);
+  return canvas;
+}
+
+type TrackManScan = {
+  playerName?: string;
+  teeName?: string;
+  courseName?: string;
+  score?: number;
+};
+
+function extractTrackManInfo(text: string): TrackManScan {
+  const lines = text.split(/\r?\n/).map((line) => line.replace(/\s+/g, " ").trim()).filter(Boolean);
+  const hcpIndex = lines.findIndex((line) => /\bHCP\b/i.test(line));
+  const hcpLine = hcpIndex >= 0 ? lines[hcpIndex] : "";
+  const hcpMatch = hcpLine.match(/\bHCP\b\s*[,:]?\s*[+-]?\d{1,2}\s*[,|]?\s*([A-Za-zÅÆØåæø][A-Za-zÅÆØåæø0-9 ._-]*)/i);
+  const teeName = hcpMatch?.[1]?.replace(/[|]/g, "").trim();
+  const playerName = hcpIndex > 0 ? lines[hcpIndex - 1] : undefined;
+
+  const courseName = lines.find((line) =>
+    /\b(?:resort|country club|golf club|golf|course|links)\b/i.test(line),
+  );
+
+  let score: number | undefined;
+  if (playerName) {
+    const playerLineIndex = lines.findIndex((line) => line.toLocaleLowerCase("nb").includes(playerName.toLocaleLowerCase("nb")));
+    if (playerLineIndex >= 0) {
+      const rowNumbers = [...lines[playerLineIndex].matchAll(/\b(\d{2,3})\b/g)]
+        .map((match) => Number(match[1]))
+        .filter((number) => number >= 40 && number <= 180);
+      if (rowNumbers.length >= 2) score = rowNumbers[rowNumbers.length - 2];
+      else if (rowNumbers.length === 1) score = rowNumbers[0];
+    }
+  }
+
+  return { playerName, teeName, courseName, score };
 }
 
 function getCourseSetups(courses?: CourseSetup[]): CourseSetup[] {
@@ -315,11 +392,14 @@ function isValidData(value: unknown): value is TournamentData {
   ));
   const optionalRoundsValid = value.rounds === undefined || (Array.isArray(value.rounds)   && value.rounds.length > 0
   && value.rounds.every(isValidRound));
+  const optionalHouseRulesValid = value.houseRules === undefined
+    || (typeof value.houseRules === "string" && value.houseRules.length <= 5000);
   return value.players.every(isValidPlayer)
     && value.teams.every(isValidTeam)
     && value.scores.every(isValidScore)
     && optionalCoursesValid
-    && optionalRoundsValid;
+    && optionalRoundsValid
+    && optionalHouseRulesValid;
 }
 
 function addInitialPlayers(data: TournamentData): TournamentData {
@@ -356,6 +436,7 @@ function removeDemoData(data: TournamentData): TournamentData {
     courses: data.courses?.length ? data.courses : defaultCourses,
     rounds: data.rounds?.length ? data.rounds : rounds,
     playerRosterVersion: data.playerRosterVersion,
+    houseRules: data.houseRules,
     scores: data.scores.filter((score) =>
       !DEMO_SCORE_IDS.has(score.id)
       && !DEMO_PLAYER_IDS.has(score.entryId)
@@ -392,10 +473,15 @@ export default function Home() {
   const [editingScoreId, setEditingScoreId] = useState("");
   const [scoreMethod, setScoreMethod] = useState<"manual" | "scan">("manual");
   const [isScanning, setIsScanning] = useState(false);
+  const [scannedText, setScannedText] = useState("");
   const [courseRoundId, setCourseRoundId] = useState(1);
   const [newTeeName, setNewTeeName] = useState("");
   const [pasteCourseText, setPasteCourseText] = useState("");
   const [parsedTees, setParsedTees] = useState<Omit<Tee, "id">[]>([]);
+  const [golfifyUrl, setGolfifyUrl] = useState("");
+  const [golfifyTees, setGolfifyTees] = useState<Omit<Tee, "id">[]>([]);
+  const [isLoadingGolfify, setIsLoadingGolfify] = useState(false);
+  const [houseRulesDraft, setHouseRulesDraft] = useState(DEFAULT_HOUSE_RULES);
   const scoreImageInput = useRef<HTMLInputElement>(null);
   const scoreImageUploadInput = useRef<HTMLInputElement>(null);
   const backupInput = useRef<HTMLInputElement>(null);
@@ -463,6 +549,10 @@ export default function Home() {
     // The timer is intentionally scoped to the current toast message.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, ready]);
+
+  useEffect(() => {
+    if (ready) setHouseRulesDraft(data.houseRules ?? DEFAULT_HOUSE_RULES);
+  }, [data.houseRules, ready]);
 
   useEffect(() => {
     if (!toast) return;
@@ -795,18 +885,31 @@ export default function Home() {
   async function handleScanImage(file?: File) {
     if (!file) return;
     setIsScanning(true);
+    setScannedText("");
     try {
-      const { createWorker } = await import("tesseract.js");
+      const { createWorker, PSM } = await import("tesseract.js");
       const worker = await createWorker("eng");
       try {
-        const { data: result } = await worker.recognize(file);
+        const processedImage = await preprocessTrackManImage(file);
+        await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK });
+        const { data: result } = await worker.recognize(processedImage);
         const text = result.text;
-        const scannedScore = extractScoreFromText(text);
+        setScannedText(text);
+        const trackMan = extractTrackManInfo(text);
+        const scannedScore = trackMan.score ?? extractScoreFromText(text);
         const normalizedText = text.toLocaleLowerCase("nb");
-        const scannedTee = selectedCourse.tees.find((tee) => normalizedText.includes(tee.name.toLocaleLowerCase("nb")));
-        const matchingPlayer = data.players.find((player) =>
-          normalizedText.includes(player.name.toLocaleLowerCase("nb")),
-        );
+        const trackManTeeName = trackMan.teeName?.toLocaleLowerCase("nb") ?? "";
+        const scannedTee = selectedCourse.tees.find((tee) => {
+          const teeName = tee.name.toLocaleLowerCase("nb");
+          return normalizedText.includes(teeName)
+            || (trackManTeeName && (teeName.includes(trackManTeeName) || trackManTeeName.includes(teeName)));
+        });
+        const trackManPlayerName = trackMan.playerName?.toLocaleLowerCase("nb");
+        const matchingPlayer = data.players.find((player) => {
+          const playerName = player.name.toLocaleLowerCase("nb");
+          return (trackManPlayerName && (trackManPlayerName.includes(playerName) || playerName.includes(trackManPlayerName)))
+            || normalizedText.includes(playerName);
+        });
         const matchingTeam = selectedRoundTeams.find((team) =>
           normalizedText.includes(team.name.toLocaleLowerCase("nb")),
         );
@@ -904,15 +1007,55 @@ export default function Home() {
     if (!parsed.length) showToast("Fant ingen komplette tee-linjer. Bruk formatet: Hvit · Par 72 · CR 73,1 · Slope 132.");
   }
 
-  function handleImportParsedTees() {
+  async function handleFetchGolfifyTees() {
     if (!adminUnlocked) return;
-    if (!parsedTees.length) return;
+    setIsLoadingGolfify(true);
+    setGolfifyTees([]);
+    try {
+      const response = await fetch("/api/scrape-course", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: golfifyUrl }),
+      });
+      const result: unknown = await response.json();
+      if (!response.ok) {
+        const message = isRecord(result) && typeof result.error === "string" ? result.error : "Kunne ikke lese Golfify-siden.";
+        throw new Error(message);
+      }
+      if (!isRecord(result) || !Array.isArray(result.tees)) {
+        throw new Error("Golfify returnerte data i et ukjent format.");
+      }
+      const tees = result.tees.filter((tee): tee is Omit<Tee, "id"> =>
+        isRecord(tee)
+        && typeof tee.name === "string"
+        && tee.name.trim().length > 0
+        && typeof tee.par === "number"
+        && Number.isInteger(tee.par)
+        && typeof tee.courseRating === "number"
+        && Number.isFinite(tee.courseRating)
+        && typeof tee.slopeRating === "number"
+        && Number.isInteger(tee.slopeRating),
+      );
+      if (!tees.length) throw new Error("Fant ingen gyldige tee-steder på siden.");
+      setGolfifyTees(tees);
+      showToast(`Fant ${tees.length} tee-steder. Kontroller verdiene og lagre.`);
+    } catch (error) {
+      console.error("Could not fetch Golfify course data.", error);
+      showToast(error instanceof Error ? `Feil: ${error.message}` : "Feil: Kunne ikke lese siden.");
+    } finally {
+      setIsLoadingGolfify(false);
+    }
+  }
+
+  function handleImportParsedTees(teesToImport = parsedTees) {
+    if (!adminUnlocked) return;
+    if (!teesToImport.length) return;
     if (getCourseSetup(data.courses, courseRoundId).tees.length > 0
       && !window.confirm("Er du sikker på at du vil slette dette? Importen erstatter tee-oppsettet som ikke brukes av scorekort.")) return;
     setData((current) => {
       const courses = getCourseSetups(current.courses).map((course) => {
         if (course.roundId !== courseRoundId) return course;
-        const tees = parsedTees.map((tee) => {
+        const tees = teesToImport.map((tee) => {
           const existing = course.tees.find((item) => item.name.toLocaleLowerCase("nb") === tee.name.toLocaleLowerCase("nb"));
           return { ...tee, id: existing?.id ?? crypto.randomUUID() };
         });
@@ -927,8 +1070,9 @@ export default function Home() {
       return { ...current, courses };
     });
     setParsedTees([]);
+    setGolfifyTees([]);
     setPasteCourseText("");
-    showToast(`${parsedTees.length} tee-steder er importert. Kontroller verdiene før bruk.`);
+    showToast(`${teesToImport.length} tee-steder er lagret.`);
   }
 
   function handleSaveRound(round: Round) {
@@ -944,6 +1088,23 @@ export default function Home() {
     }));
     setEditingRoundId(null);
     showToast(`Runde ${round.id} er oppdatert.`);
+  }
+
+  function handleSaveHouseRules(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!adminUnlocked) return;
+    const rules = houseRulesDraft.trim();
+    if (!rules) {
+      showToast("Skriv inn husregler før du lagrer.");
+      return;
+    }
+    if (rules.length > 5000) {
+      showToast("Husreglene kan ikke være lengre enn 5000 tegn.");
+      return;
+    }
+    setData((current) => ({ ...current, houseRules: rules }));
+    setHouseRulesDraft(rules);
+    showToast("Husreglene er lagret.");
   }
 
   function handleExportBackup() {
@@ -1270,6 +1431,12 @@ export default function Home() {
                         <Upload size={16} /> Last opp bilde
                       </button>
                       <span>Ta bilde eller last opp et bilde av scorekortet. OCR-forslaget kan kontrolleres før lagring.</span>
+                      {scannedText && (
+                        <details style={{ width: "100%", textAlign: "left" }}>
+                          <summary style={{ cursor: "pointer", fontWeight: 700 }}>Vis lest tekst</summary>
+                          <pre style={{ margin: "8px 0 0", maxHeight: 220, overflow: "auto", whiteSpace: "pre-wrap", fontSize: 12, background: "#f5f6f4", padding: 10, borderRadius: 8 }}>{scannedText}</pre>
+                        </details>
+                      )}
                     </div>
                   )}
                   {isTeamFormat(selectedRound.format) && selectedRoundTeams.length === 0 && <div className="leader-empty" style={{ padding: "3px 0 13px", textAlign: "left" }}>Ingen lag er satt opp for denne runden. <button className="subtle-link" style={{ display: "inline-flex", padding: 0 }} type="button" onClick={() => setView("players")}>Opprett lag <ArrowRight size={12} /></button></div>}
@@ -1319,6 +1486,86 @@ export default function Home() {
           </section>
         )}
 
+        {view === "rules" && (
+          <section className="content-section rules-page">
+            <SectionHeading eyebrow="Winter Tour 26/27" title="Regler & spilleformater" description="Slik spiller vi, samler Order of Merit-poeng og beregner handicap gjennom vintersesongen." />
+
+            <section className="rules-panel">
+              <div className="rules-panel-heading"><span className="rules-icon"><Trophy size={17} /></span><div><h3>Turneringsformat & Order of Merit</h3><p>Ni runder gjennom vinteren 2026/2027. Poengene fra hver runde teller på den individuelle Order of Merit-listen.</p></div></div>
+              <div className="rules-panel-content">
+                <div className="rules-points" aria-label="Poengfordeling per runde">
+                  {[["1. plass", "12p"], ["2. plass", "10p"], ["3. plass", "8p"], ["4. plass", "6p"], ["5. plass", "4p"], ["6. plass", "2p"]].map(([place, points]) => (
+                    <div className="rules-point-row" key={place}><span>{place}</span><strong>{points}</strong></div>
+                  ))}
+                </div>
+                <p>Delte plasseringer deler poengene som tilhører plassene likt. Eksempel: to spillere som deler 1. plass deler 1.- og 2.-plasspoengene (12 + 10) og får 11 poeng hver.</p>
+                <p>I par-runder får begge spillerne på laget lagets opptjente poeng på hver sin individuelle Order of Merit-liste.</p>
+              </div>
+            </section>
+
+            <section className="rules-panel">
+              <div className="rules-panel-heading"><span className="rules-icon"><Users size={17} /></span><div><h3>Spilleformater</h3><p>Formatet for hver runde står også i turneringsoversikten.</p></div></div>
+              <div className="rules-accordion">
+                <details open>
+                  <summary>Single · Individuell slagspill</summary>
+                  <p>Hver spiller spiller sin egen ball fra tee til hull. Laveste netto score vinner.</p>
+                </details>
+                <details>
+                  <summary>Greensome</summary>
+                  <p>Begge på laget slår ut fra tee. Laget velger den beste utslagsballen, og spillerne slår deretter annenhvert slag på samme ball til den er i hullet.</p>
+                </details>
+                <details>
+                  <summary>Scramble</summary>
+                  <p>Begge slår ut fra tee og velger den beste ballen. Begge slår neste slag fra samme posisjon. Slik fortsetter laget helt til ballen er i hullet.</p>
+                </details>
+                <details>
+                  <summary>Best Ball · Fourball</summary>
+                  <p>Begge spillerne spiller sin egen ball gjennom hele hullet. Lagets score på hvert hull er den beste netto scoren av de to spillerne.</p>
+                </details>
+                <details>
+                  <summary>Foursome</summary>
+                  <p>Laget spiller én felles ball og slår annenhvert slag helt til ballen er i hullet. Spiller A slår ut på alle oddetallshull, spiller B på alle partallshull.</p>
+                </details>
+              </div>
+            </section>
+
+            <section className="rules-panel">
+              <div className="rules-panel-heading"><span className="rules-icon"><Flag size={17} /></span><div><h3>Handicap-system & dynamisk justering</h3><p>HCP beregnes på nytt etter hver registrerte runde.</p></div></div>
+              <div className="rules-panel-content">
+                <ul className="rules-list">
+                  <li><strong>Start-HCP:</strong> Hver spiller starter turneringen med sitt utendørs handicap.</li>
+                  <li><strong>Spillehandicap (SHCP):</strong> Turnerings-HCP × (Slope / 113) + (Course Rating − Par), avrundet til nærmeste heltall for valgt tee.</li>
+                  <li><strong>Justering etter runden:</strong> Netto resultat mot par deles på 2 og legges til Turnerings-HCP. Justeringen avrundes til én desimal før neste runde.</li>
+                </ul>
+                <div className="rules-example"><strong>Eksempel</strong><p>Spiller du −2 netto på en runde, justeres handicappet ditt ned med −1.0 før neste runde. Spiller du +4 netto, justeres det opp med +2.0.</p></div>
+              </div>
+            </section>
+
+            <section className="rules-panel">
+              <div className="rules-panel-heading"><span className="rules-icon"><ClipboardList size={17} /></span><div><h3>Slik registrerer du score</h3><p>Registrer resultatet etter runden og kontroller tallene før lagring.</p></div></div>
+              <div className="rules-panel-content">
+                <ol className="rules-steps">
+                  <li><strong>Velg runde og spiller/lag</strong><span>Åpne Scorekort og velg riktig runde og spiller eller lag.</span></li>
+                  <li><strong>Legg inn brutto score</strong><span>Registrer manuelt, eller velg «Skann scorekort» og ta bilde eller last opp bilde av TrackMan-skjermen.</span></li>
+                  <li><strong>Kontroller og lagre</strong><span>Kontroller at tee-sted og brutto score stemmer, og lagre resultatet.</span></li>
+                </ol>
+              </div>
+              <div className="rules-house">
+                <div className="rules-house-heading"><h4>Simulator- & husregler</h4>{adminUnlocked && <span>Admin kan redigere</span>}</div>
+                {adminUnlocked ? (
+                  <form onSubmit={handleSaveHouseRules}>
+                    <label className="visually-hidden" htmlFor="house-rules">Simulator- og husregler</label>
+                    <textarea id="house-rules" value={houseRulesDraft} maxLength={5000} onChange={(event) => setHouseRulesDraft(event.target.value)} rows={4} />
+                    <div className="rules-house-actions"><small>{houseRulesDraft.length}/5000 tegn</small><button className="primary-button" type="submit"><Save size={13} /> Lagre husregler</button></div>
+                  </form>
+                ) : (
+                  <p className="rules-house-text">{data.houseRules || DEFAULT_HOUSE_RULES}</p>
+                )}
+              </div>
+            </section>
+          </section>
+        )}
+
         {view === "courses" && (
           <section className="content-section">
             <SectionHeading eyebrow="Baneoppsett" title="Baner & Tee-oppsett" description="Administrer Par, Course Rating og Slope for alle ni rundene." />
@@ -1328,7 +1575,7 @@ export default function Home() {
                 <Flag size={17} color="#f15a24" />
               </div>
               <div className="form-row">
-                <div className="field"><label htmlFor="course-round">Turneringsbane</label><select id="course-round" value={courseRoundId} onChange={(event) => { setCourseRoundId(Number(event.target.value)); setParsedTees([]); }}><option value="" disabled>Velg bane</option>{tournamentRounds.map((round) => <option key={round.id} value={round.id}>Runde {round.id} · {round.course}</option>)}</select></div>
+                <div className="field"><label htmlFor="course-round">Turneringsbane</label><select id="course-round" value={courseRoundId} onChange={(event) => { setCourseRoundId(Number(event.target.value)); setParsedTees([]); setGolfifyTees([]); }}><option value="" disabled>Velg bane</option>{tournamentRounds.map((round) => <option key={round.id} value={round.id}>Runde {round.id} · {round.course}</option>)}</select></div>
                 <div className="course-default-note">Veiledende standardverdier · Par {tournamentRounds.find((round) => round.id === courseRoundId)?.par ?? 72}</div>
               </div>
               <form className="form-row add-tee-form" onSubmit={handleAddTee}>
@@ -1355,6 +1602,26 @@ export default function Home() {
             </section>
 
             <section className="content-panel paste-course-panel">
+              <div className="content-panel-header"><div><h3>Importer tee-data fra Golfify</h3><p>Hent tee-navn, Par, Course Rating og Slope fra en Golfify-kurside. Du kan kontrollere dataene før lagring.</p></div><Download size={17} color="#f15a24" /></div>
+              {adminUnlocked ? <div className="paste-course-content">
+                <div className="form-row">
+                  <div className="field"><label htmlFor="golfify-course-url">Importer tee-data fra Golfify-URL</label><input id="golfify-course-url" type="url" value={golfifyUrl} onChange={(event) => { setGolfifyUrl(event.target.value); setGolfifyTees([]); }} placeholder="https://www.golfify.io/courses/banenavn" /></div>
+                  <button className="secondary-button" type="button" disabled={isLoadingGolfify || !golfifyUrl.trim()} onClick={() => { void handleFetchGolfifyTees(); }}>
+                    {isLoadingGolfify ? <LoaderCircle className="spin" size={14} /> : <Download size={14} />}
+                    {isLoadingGolfify ? "Henter data …" : "Hent data"}
+                  </button>
+                </div>
+                {golfifyTees.length > 0 && (
+                  <div className="parsed-tee-preview">
+                    <strong>Fant {golfifyTees.length} tee-steder · kontroller før lagring</strong>
+                    <div className="score-table-wrap"><table className="score-table"><thead><tr><th>Tee</th><th>Par</th><th>CR</th><th>Slope</th></tr></thead><tbody>{golfifyTees.map((tee, index) => <tr key={`${tee.name}-${index}`}><td>{tee.name}</td><td>{tee.par}</td><td>{tee.courseRating.toFixed(1)}</td><td>{tee.slopeRating}</td></tr>)}</tbody></table></div>
+                    <button className="primary-button" type="button" onClick={() => handleImportParsedTees(golfifyTees)}><Save size={14} /> Lagre tee-oppsett</button>
+                  </div>
+                )}
+              </div> : <div className="admin-locked-note"><Lock size={13} /> Lås opp Admin for å hente inn og lagre tee-data fra Golfify.</div>}
+            </section>
+
+            <section className="content-panel paste-course-panel">
               <div className="content-panel-header"><div><h3>Lim inn fra tekst</h3><p>Én tee per linje. Støtter for eksempel «Hvit · Par 72 · CR 73,1 · Slope 132» eller kolonner: Hvit 72 73.1 132.</p></div><ClipboardList size={17} color="#f15a24" /></div>
               {adminUnlocked ? <div className="paste-course-content">
                 <textarea className="course-paste-input" value={pasteCourseText} onChange={(event) => { setPasteCourseText(event.target.value); setParsedTees([]); }} placeholder={"Hvit | Par 72 | CR 73,1 | Slope 132\nGul | Par 72 | CR 71,8 | Slope 126"} rows={5} />
@@ -1363,7 +1630,7 @@ export default function Home() {
                   <div className="parsed-tee-preview">
                     <strong>Fant {parsedTees.length} tee-steder</strong>
                     <div className="score-table-wrap"><table className="score-table"><thead><tr><th>Tee</th><th>Par</th><th>CR</th><th>Slope</th></tr></thead><tbody>{parsedTees.map((tee, index) => <tr key={`${tee.name}-${index}`}><td>{tee.name}</td><td>{tee.par}</td><td>{tee.courseRating.toFixed(1)}</td><td>{tee.slopeRating}</td></tr>)}</tbody></table></div>
-                    <button className="primary-button" type="button" onClick={handleImportParsedTees}>Importer tee-oppsett</button>
+                    <button className="primary-button" type="button" onClick={() => handleImportParsedTees()}>Importer tee-oppsett</button>
                   </div>
                 )}
               </div> : <div className="admin-locked-note"><Lock size={13} /> Lås opp Admin for å importere eller endre tee-oppsettet.</div>}
