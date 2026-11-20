@@ -1,4 +1,4 @@
-import type { Round } from "./types";
+import type { CourseSetup, Round } from "./types";
 
 export const rounds: Round[] = [
   { id: 1, course: "Black Desert", format: "Single", startDate: "2026-11-22", endDate: "2026-12-05", location: "Ivins, Utah", par: 72 },
@@ -10,6 +10,18 @@ export const rounds: Round[] = [
   { id: 7, course: "Bandon Dunes", format: "Single", startDate: "2027-02-14", endDate: "2027-02-27", location: "Bandon, Oregon", par: 72 },
   { id: 8, course: "The Reserve at Moonlight Basin", format: "Foursome", startDate: "2027-02-28", endDate: "2027-03-13", location: "Big Sky, Montana", par: 72 },
   { id: 9, course: "Casa De Campo 'Teeth of the Dog'", format: "Single", startDate: "2027-03-14", endDate: "2027-03-27", location: "La Romana, Den dominikanske republikk", par: 72 },
+];
+
+export const defaultCourses: CourseSetup[] = [
+  { roundId: 1, tees: [{ id: "r1-white", name: "Hvit", par: 72, courseRating: 75.1, slopeRating: 143 }, { id: "r1-yellow", name: "Gul", par: 72, courseRating: 72.8, slopeRating: 136 }, { id: "r1-blue", name: "Blå", par: 72, courseRating: 70.5, slopeRating: 129 }, { id: "r1-red", name: "Rød", par: 72, courseRating: 68.2, slopeRating: 120 }] },
+  { roundId: 2, tees: [{ id: "r2-white", name: "Hvit", par: 70, courseRating: 73.8, slopeRating: 138 }, { id: "r2-yellow", name: "Gul", par: 70, courseRating: 71.4, slopeRating: 131 }, { id: "r2-blue", name: "Blå", par: 70, courseRating: 69.2, slopeRating: 124 }, { id: "r2-red", name: "Rød", par: 70, courseRating: 67.1, slopeRating: 117 }] },
+  { roundId: 3, tees: [{ id: "r3-white", name: "Hvit", par: 71, courseRating: 75.0, slopeRating: 143 }, { id: "r3-yellow", name: "Gul", par: 71, courseRating: 72.9, slopeRating: 137 }, { id: "r3-blue", name: "Blå", par: 71, courseRating: 70.8, slopeRating: 130 }, { id: "r3-red", name: "Rød", par: 71, courseRating: 68.6, slopeRating: 122 }] },
+  { roundId: 4, tees: [{ id: "r4-white", name: "Hvit", par: 72, courseRating: 75.2, slopeRating: 145 }, { id: "r4-yellow", name: "Gul", par: 72, courseRating: 72.9, slopeRating: 137 }, { id: "r4-blue", name: "Blå", par: 72, courseRating: 70.6, slopeRating: 130 }, { id: "r4-red", name: "Rød", par: 72, courseRating: 68.4, slopeRating: 122 }] },
+  { roundId: 5, tees: [{ id: "r5-white", name: "Hvit", par: 71, courseRating: 75.0, slopeRating: 143 }, { id: "r5-yellow", name: "Gul", par: 71, courseRating: 72.6, slopeRating: 135 }, { id: "r5-blue", name: "Blå", par: 71, courseRating: 70.3, slopeRating: 128 }, { id: "r5-red", name: "Rød", par: 71, courseRating: 68.1, slopeRating: 120 }] },
+  { roundId: 6, tees: [{ id: "r6-white", name: "Hvit", par: 72, courseRating: 74.4, slopeRating: 139 }, { id: "r6-yellow", name: "Gul", par: 72, courseRating: 72.1, slopeRating: 132 }, { id: "r6-blue", name: "Blå", par: 72, courseRating: 69.9, slopeRating: 125 }, { id: "r6-red", name: "Rød", par: 72, courseRating: 67.8, slopeRating: 118 }] },
+  { roundId: 7, tees: [{ id: "r7-white", name: "Hvit", par: 72, courseRating: 75.3, slopeRating: 146 }, { id: "r7-yellow", name: "Gul", par: 72, courseRating: 73.0, slopeRating: 138 }, { id: "r7-blue", name: "Blå", par: 72, courseRating: 70.7, slopeRating: 130 }, { id: "r7-red", name: "Rød", par: 72, courseRating: 68.5, slopeRating: 122 }] },
+  { roundId: 8, tees: [{ id: "r8-white", name: "Hvit", par: 72, courseRating: 75.4, slopeRating: 145 }, { id: "r8-yellow", name: "Gul", par: 72, courseRating: 73.1, slopeRating: 138 }, { id: "r8-blue", name: "Blå", par: 72, courseRating: 70.8, slopeRating: 130 }, { id: "r8-red", name: "Rød", par: 72, courseRating: 68.6, slopeRating: 122 }] },
+  { roundId: 9, tees: [{ id: "r9-white", name: "Hvit", par: 72, courseRating: 75.0, slopeRating: 143 }, { id: "r9-yellow", name: "Gul", par: 72, courseRating: 72.8, slopeRating: 136 }, { id: "r9-blue", name: "Blå", par: 72, courseRating: 70.5, slopeRating: 129 }, { id: "r9-red", name: "Rød", par: 72, courseRating: 68.3, slopeRating: 121 }] },
 ];
 
 export const isTeamFormat = (format: Round["format"]) => format !== "Single";
