@@ -67,6 +67,12 @@ function formatScore(score: number) {
   return score.toFixed(2).replace(/\.?0+$/, "");
 }
 
+function formatRelativeScore(score: number) {
+  const formatted = formatScore(score);
+  if (score === 0) return "E";
+  return score > 0 ? `+${formatted}` : formatted;
+}
+
 function parseTeeText(text: string): Omit<Tee, "id">[] {
   return text.split(/\r?\n/).flatMap((line) => {
     const parMatch = line.match(/\bpar\s*[:=]?\s*(\d{2})\b/i);
@@ -92,10 +98,37 @@ function parseTeeText(text: string): Omit<Tee, "id">[] {
 }
 
 function extractScoreFromText(text: string): number | undefined {
-  const labeled = [...text.matchAll(/\b(?:gross|score|total|brutto|slag)\s*[:#-]?\s*(\d{2,3})\b/gi)];
-  const candidate = labeled.at(-1)?.[1] ?? [...text.matchAll(/\b(\d{2,3})\b/g)].at(-1)?.[1];
-  const score = candidate ? Number(candidate) : NaN;
-  return Number.isInteger(score) && score >= 40 && score <= 180 ? score : undefined;
+  const labelPattern = /\b(?:gross|score|total|totalt|samlet|brutto|slag)\b/i;
+  const validNumber = (value: string) => {
+    const score = Number(value);
+    return Number.isInteger(score) && score >= 40 && score <= 180 ? score : undefined;
+  };
+
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    const labelMatch = line.match(labelPattern);
+    if (!labelMatch) continue;
+
+    const afterLabel = line.slice((labelMatch.index ?? 0) + labelMatch[0].length);
+    const sameLineNumber = [...afterLabel.matchAll(/\b(\d{2,3})\b/g)].map((match) => validNumber(match[1])).find((score) => score !== undefined);
+    if (sameLineNumber !== undefined) return sameLineNumber;
+
+    for (const followingLine of lines.slice(index + 1, index + 3)) {
+      const followingNumber = [...followingLine.matchAll(/\b(\d{2,3})\b/g)].map((match) => validNumber(match[1])).find((score) => score !== undefined);
+      if (followingNumber !== undefined) return followingNumber;
+    }
+  }
+
+  const labeled = [...text.matchAll(/\b(?:gross|score|total|totalt|samlet|brutto|slag)\b[^\d\r\n]{0,12}(\d{2,3})\b/gi)];
+  for (let index = labeled.length - 1; index >= 0; index--) {
+    const match = labeled[index];
+    const score = validNumber(match[1]);
+    if (score !== undefined) return score;
+  }
+
+  const candidates = [...text.matchAll(/\b(\d{2,3})\b/g)].map((match) => validNumber(match[1])).filter((score): score is number => score !== undefined);
+  return candidates.at(-1);
 }
 
 function getCourseSetups(courses?: CourseSetup[]): CourseSetup[] {
@@ -124,7 +157,7 @@ function scoreEntries(roundId: number, data: TournamentData): ResultRow[] {
         playerIds: [...team.playerIds],
         strokes: score.strokes,
         playingHandicap,
-        netStrokes: Math.round((score.strokes - playingHandicap) * 100) / 100,
+        netStrokes: Math.round((score.strokes - playingHandicap - (scoreTee?.par ?? round.par)) * 100) / 100,
         teeName: scoreTee?.name ?? "—",
         teePar: scoreTee?.par ?? round.par,
         score,
@@ -141,7 +174,7 @@ function scoreEntries(roundId: number, data: TournamentData): ResultRow[] {
       playerIds: [player.id],
       strokes: score.strokes,
       playingHandicap,
-      netStrokes: Math.round((score.strokes - playingHandicap) * 100) / 100,
+      netStrokes: Math.round((score.strokes - playingHandicap - (scoreTee?.par ?? round.par)) * 100) / 100,
       teeName: scoreTee?.name ?? "—",
       teePar: scoreTee?.par ?? round.par,
       score,
@@ -713,6 +746,11 @@ export default function Home() {
       showToast("Spilleren eller laget finnes ikke i denne runden.");
       return;
     }
+    const scoreTee = adminUnlocked ? selectedTee : selectedCourse.tees[0];
+    if (!scoreTee) {
+      showToast("Legg til et tee-sted før du registrerer resultat.");
+      return;
+    }
     const conflictingScore = data.scores.find((item) =>
       item.roundId === selectedRoundId && item.entryId === entryId && item.id !== editingScoreId,
     );
@@ -722,7 +760,7 @@ export default function Home() {
       roundId: selectedRoundId,
       entryId,
       strokes: parsedScore,
-      teeId: selectedTee.id,
+      teeId: scoreTee.id,
       updatedAt: new Date().toISOString(),
     };
     setData((current) => ({
@@ -773,7 +811,7 @@ export default function Home() {
           normalizedText.includes(team.name.toLocaleLowerCase("nb")),
         );
         if (scannedScore !== undefined) setStrokes(String(scannedScore));
-        if (scannedTee) setSelectedTeeId(scannedTee.id);
+        if (scannedTee && adminUnlocked) setSelectedTeeId(scannedTee.id);
         if (matchingPlayer) {
           setEntryId(isTeamFormat(selectedRound.format)
             ? selectedRoundTeams.find((team) => team.playerIds.includes(matchingPlayer.id))?.id ?? ""
@@ -1066,10 +1104,10 @@ export default function Home() {
                 <span className={`rank-number${index === 0 && roundsPlayed > 0 ? " gold" : ""}`}>{String(index + 1).padStart(2, "0")}</span>
                 <PlayerAvatar name={player.name} dark />
                 <div className="leader-info"><div className="leader-name">{player.name}</div><div className="leader-sub">Start {player.handicap.toFixed(1)} · Nå {getTournamentHandicap(player, nextRound.id, data).toFixed(1)}</div></div>
-                <div className="leader-total">{roundsPlayed ? formatScore(netScore) : "—"}<small>NETTO</small></div>
+                <div className="leader-total">{roundsPlayed ? formatRelativeScore(netScore) : "—"}<small>MOT PAR</small></div>
               </div>
             ))}
-            <div className="note"><CircleHelp size={12} /> Lagets netto score føres på begge spillerne.</div>
+            <div className="note"><CircleHelp size={12} /> Lagets score mot par føres på begge spillerne.</div>
           </section>
         )}
 
@@ -1170,7 +1208,7 @@ export default function Home() {
 
         {view === "scorecard" && (
           <section className="content-section">
-            <SectionHeading eyebrow="Rundens scorekort" title="Registrer resultat" description="Legg inn brutto slag. Laveste netto score vinner runden." />
+            <SectionHeading eyebrow="Rundens scorekort" title="Registrer resultat" description="Legg inn brutto slag. Laveste score mot par vinner runden." />
             <div className="score-layout">
               <section className="content-panel">
                 <div className="content-panel-header"><div><h3>{editingScoreId ? "Rediger resultat" : "Registrer resultat"}</h3><p>Resultatene lagres automatisk på denne enheten.</p></div><Medal size={17} color="#f15a24" /></div>
@@ -1185,7 +1223,9 @@ export default function Home() {
                       setSelectedTeeId(getCourseSetup(data.courses, roundId).tees[0]?.id ?? "");
                       setEntryId("");
                     }}><option value="" disabled>Velg runde</option>{tournamentRounds.map((round) => <option key={round.id} value={round.id}>Runde {round.id} · {round.course}</option>)}</select></div>
-                  <div className="field"><label htmlFor="score-tee">Tee-sted</label><select id="score-tee" value={selectedTee?.id ?? ""} onChange={(event) => setSelectedTeeId(event.target.value)}><option value="">Velg tee</option>{selectedCourse.tees.map((tee) => <option key={tee.id} value={tee.id}>{tee.name} · Par {tee.par} · CR {tee.courseRating.toFixed(1)} · Slope {tee.slopeRating}</option>)}</select></div>
+                  <div className="field"><label htmlFor="score-tee">Tee-sted</label><select id="score-tee" value={selectedTee?.id ?? ""} disabled={!adminUnlocked} onChange={(event) => {
+                    if (adminUnlocked) setSelectedTeeId(event.target.value);
+                  }}><option value="">Velg tee</option>{selectedCourse.tees.map((tee) => <option key={tee.id} value={tee.id}>{tee.name} · Par {tee.par} · CR {tee.courseRating.toFixed(1)} · Slope {tee.slopeRating}</option>)}</select>{!adminUnlocked && <p style={{ color: "#72777c", fontSize: 11, margin: "6px 0 0" }}>Kun Admin kan velge tee-sted.</p>}</div>
                   <div className="field"><label htmlFor="score-player">{isTeamFormat(selectedRound.format) ? "Lag" : "Spiller"}</label><select id="score-player" value={entryId} onChange={(event) => setEntryId(event.target.value)}><option value="">Velg {isTeamFormat(selectedRound.format) ? "lag" : "spiller"}</option>{selectedEntries.map((entry) => <option key={entry.id} value={entry.id}>{isTeamFormat(selectedRound.format) ? (entry as Team).name : (entry as Player).name}</option>)}</select></div>
                   <div className="field"><label htmlFor="score-strokes">Brutto slag</label><input id="score-strokes" type="number" min="40" max="180" step="1" value={strokes} onChange={(event) => setStrokes(event.target.value)} placeholder={`Par ${selectedRound.par} · f.eks. 74`} /></div>
                   {selectedPlayers.length > 0 && selectedTee && (
@@ -1193,7 +1233,7 @@ export default function Home() {
                       <div><span>Turnerings-HCP</span><strong>{selectedPlayerHandicaps.map((hcp) => hcp.toFixed(1)).join(" / ")}</strong></div>
                       <div><span>Spillehandicap</span><strong>{selectedPlayingHandicaps.join(" / ")}</strong></div>
                       {liveNetVsPar !== undefined && <>
-                        <div><span>Netto mot par</span><strong>{liveNetVsPar > 0 ? "+" : ""}{formatScore(liveNetVsPar)}</strong></div>
+                        <div><span>Netto mot par</span><strong>{formatRelativeScore(liveNetVsPar)}</strong></div>
                         <div><span>HCP neste runde</span><strong>{liveNextHandicaps.map((hcp) => hcp.toFixed(1)).join(" / ")}</strong></div>
                         <p>{liveAdjustments.map((adjustment) => adjustment === undefined ? "—" : `${adjustment > 0 ? "+" : ""}${adjustment.toFixed(1)}`).join(" / ")} justering før neste runde.</p>
                       </>}
@@ -1253,7 +1293,7 @@ export default function Home() {
 
         {view === "leaderboard" && (
           <section className="content-section">
-            <SectionHeading eyebrow="Kampen om tittelen" title="Leaderboard" description="Spillerne rangeres etter summen av netto score fra registrerte runder, lavest først. Lagresultat føres på begge spillerne." />
+            <SectionHeading eyebrow="Kampen om tittelen" title="Leaderboard" description="Spillerne rangeres etter summen av netto score mot par fra registrerte runder, lavest først. Lagresultat føres på begge spillerne." />
             <section className="content-panel">
               <div className="leaderboard-controls">
                 <div className="segmented" role="tablist" aria-label="Leaderboard-visning">
@@ -1265,14 +1305,14 @@ export default function Home() {
               {leaderboardMode === "overall" ? (
                 <>
                   <div className="score-table-wrap"><table className="leaderboard-table"><thead><tr><th>Plass</th><th>Spiller</th><th>Score</th><th>Snitt brutto (singel)</th><th>Start-HCP</th><th>Turnerings-HCP</th></tr></thead><tbody>
-                    {overallLeaderboard.map(({ player, netScore, roundsPlayed, averageGrossScore }, index) => <tr key={player.id}><td className={index === 0 && roundsPlayed > 0 ? "trophy-rank" : "table-rank"}>{String(index + 1).padStart(2, "0")}{index === 0 && roundsPlayed > 0 ? "  ♛" : ""}</td><td><span className="player-inline"><PlayerAvatar name={player.name} dark />{player.name}</span></td><td className="leader-total-cell">{roundsPlayed ? formatScore(netScore) : "—"}</td><td>{averageGrossScore === undefined ? "—" : formatScore(averageGrossScore)}</td><td className="result-label">{player.handicap.toFixed(1)}</td><td>{getTournamentHandicap(player, nextRound.id, data).toFixed(1)}</td></tr>)}
+                    {overallLeaderboard.map(({ player, netScore, roundsPlayed, averageGrossScore }, index) => <tr key={player.id}><td className={index === 0 && roundsPlayed > 0 ? "trophy-rank" : "table-rank"}>{String(index + 1).padStart(2, "0")}{index === 0 && roundsPlayed > 0 ? "  ♛" : ""}</td><td><span className="player-inline"><PlayerAvatar name={player.name} dark />{player.name}</span></td><td className="leader-total-cell">{roundsPlayed ? formatRelativeScore(netScore) : "—"}</td><td>{averageGrossScore === undefined ? "—" : formatScore(averageGrossScore)}</td><td className="result-label">{player.handicap.toFixed(1)}</td><td>{getTournamentHandicap(player, nextRound.id, data).toFixed(1)}</td></tr>)}
                   </tbody></table></div>
-                  <div className="leaderboard-foot">Score er summen av netto score fra registrerte runder; lavest sum vinner. Snitt brutto beregnes kun fra spillerens registrerte singelrunder. Lagresultater føres på begge spillerne.</div>
+                  <div className="leaderboard-foot">Score er summen av netto score mot par fra registrerte runder; lavest sum vinner. Snitt brutto beregnes kun fra spillerens registrerte singelrunder. Lagresultater føres på begge spillerne.</div>
                 </>
               ) : leaderboardResults.length ? (
                 <>
                   <ScoreResults results={leaderboardResults} players={data.players} admin={adminUnlocked} onEdit={startEditingScore} onDelete={handleDeleteScore} />
-                  <div className="leaderboard-foot">Rundens netto score = brutto slag − spille-HCP; lavest score vinner runden.</div>
+                  <div className="leaderboard-foot">Rundens netto score mot par = brutto slag − spille-HCP − banepar; lavest score vinner runden.</div>
                 </>
               ) : <div className="empty-state">Ingen resultater registrert for denne runden ennå.</div>}
             </section>
@@ -1332,7 +1372,7 @@ export default function Home() {
         )}
       </main>
 
-      <footer className="page-wrap footer"><span><strong>WINTER TOUR 26/27</strong> · Tournament Club</span><span>Ni runder. Sammenlagt på netto score.</span></footer>
+      <footer className="page-wrap footer"><span><strong>WINTER TOUR 26/27</strong> · Tournament Club</span><span>Ni runder. Sammenlagt på netto score mot par.</span></footer>
       {toast && <div className="toast" role="status"><Check size={14} />{toast}</div>}
     </div>
   );
@@ -1495,8 +1535,8 @@ function ScoreResults({
   onEdit?: (score: Score) => void;
   onDelete?: (score: Score) => void;
 }) {
-  return <div className="score-table-wrap"><table className="score-table"><thead><tr><th>Plass</th><th>Spiller / lag</th><th>Tee</th><th>Brutto</th><th>Spille-HCP</th><th>Netto</th>{admin && <th>Handling</th>}</tr></thead><tbody>{results.map((result, index) => (
-    <tr key={result.entryId}><td className={`table-rank${index === 0 ? " trophy-rank" : ""}`}>{String(index + 1).padStart(2, "0")}</td><td>{result.label}{result.playerIds.length === 2 && <div style={{ color: "#72777c", fontSize: 9, marginTop: 4 }}>{result.playerIds.map((id) => players.find((player) => player.id === id)?.name ?? "Spiller").join(" & ")}</div>}</td><td className="result-label">{result.teeName}</td><td>{result.strokes}</td><td className="result-label">{formatScore(result.playingHandicap)}</td><td className="score-value">{formatScore(result.netStrokes)}<span className="score-par">{result.netStrokes - result.teePar === 0 ? "E" : result.netStrokes - result.teePar > 0 ? `+${formatScore(result.netStrokes - result.teePar)}` : formatScore(result.netStrokes - result.teePar)}</span></td>
+  return <div className="score-table-wrap"><table className="score-table"><thead><tr><th>Plass</th><th>Spiller / lag</th><th>Tee</th><th>Brutto</th><th>Spille-HCP</th><th>Mot par</th>{admin && <th>Handling</th>}</tr></thead><tbody>{results.map((result, index) => (
+    <tr key={result.entryId}><td className={`table-rank${index === 0 ? " trophy-rank" : ""}`}>{String(index + 1).padStart(2, "0")}</td><td>{result.label}{result.playerIds.length === 2 && <div style={{ color: "#72777c", fontSize: 9, marginTop: 4 }}>{result.playerIds.map((id) => players.find((player) => player.id === id)?.name ?? "Spiller").join(" & ")}</div>}</td><td className="result-label">{result.teeName}</td><td>{result.strokes}</td><td className="result-label">{formatScore(result.playingHandicap)}</td><td className="score-value">{formatRelativeScore(result.netStrokes)}</td>
       {admin && <td><div className="score-actions"><button className="text-action" type="button" onClick={() => onEdit?.(result.score)}><Pencil size={13} /> Rediger</button><button className="text-action danger-text" type="button" onClick={() => onDelete?.(result.score)}><Trash2 size={13} /> Slett</button></div></td>}
     </tr>
   ))}</tbody></table></div>;

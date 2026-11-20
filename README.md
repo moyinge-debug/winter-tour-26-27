@@ -13,7 +13,7 @@ npm run dev
 
 ## Sammenlagt leaderboard
 
-Leaderboard summerer netto score (brutto slag minus spille-HCP) fra registrerte runder og rangerer laveste totalsum først. I singelrunder brukes spillerens spillehandicap; i lagrunder brukes gjennomsnittet av spillernes spillehandicap, og lagets netto score føres på begge spillerne.
+Leaderboard summerer netto score mot par (`brutto slag − spille-HCP − banepar`) fra registrerte runder og rangerer laveste totalsum først. I singelrunder brukes spillerens spillehandicap; i lagrunder brukes gjennomsnittet av spillernes spillehandicap, og lagets netto score føres på begge spillerne.
 
 ## Handicap og tee-oppsett
 
