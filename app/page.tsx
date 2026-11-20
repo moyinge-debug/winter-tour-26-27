@@ -7,26 +7,37 @@ import {
   Check,
   ClipboardList,
   CircleHelp,
+  Download,
   Flag,
   LoaderCircle,
+  Lock,
   Medal,
+  Pencil,
   Plus,
+  RotateCcw,
+  Save,
   ScanLine,
   Trash2,
   Trophy,
+  Unlock,
+  Upload,
   Users,
   UserRound,
+  X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultCourses, formatPeriod, getRoundStatus, isTeamFormat, rounds } from "@/lib/data";
 import { getCourseSetup, getHandicapHistory, getPlayingHandicap, getTournamentHandicap, getTournamentHandicapSnapshot, getTee } from "@/lib/handicap";
-import type { CourseSetup, Player, Round, Score, Team, Tee, TournamentData, View } from "@/lib/types";
+import type { CourseSetup, Player, Round, RoundFormat, Score, Team, Tee, TournamentData, View } from "@/lib/types";
 
 const STORAGE_KEY = "winter-tour-26-27";
+const ADMIN_SESSION_KEY = "winter-tour-26-27-admin";
+const ADMIN_PIN = "2026";
 const DEMO_PLAYER_IDS = new Set(["p1", "p2", "p3", "p4", "p5", "p6"]);
 const DEMO_TEAM_IDS = new Set(["t2a", "t2b", "t2c", "t4a", "t4b", "t4c", "t6a", "t6b", "t6c", "t8a", "t8b", "t8c"]);
 const DEMO_SCORE_IDS = new Set(["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"]);
 const POINTS_BY_PLACE = [12, 10, 8, 6, 4, 2];
+const ROUND_FORMATS: RoundFormat[] = ["Single", "Greensome", "Scramble", "Best ball", "Foursome"];
 const NAV_ITEMS: { id: View; label: string; icon: typeof Flag }[] = [
   { id: "overview", label: "Oversikt", icon: Flag },
   { id: "players", label: "Spillere & lag", icon: Users },
@@ -73,7 +84,9 @@ function parseTeeText(text: string): Omit<Tee, "id">[] {
       .replace(/[\s:;,|/-]+$/, "")
       .replace(/^(?:tee|name)\s*[:=]?\s*/i, "")
       .trim();
-    if (!name || !par || !courseRating || !slopeRating) return [];
+    if (!name || typeof par !== "number" || !Number.isInteger(par) || par < 54 || par > 90
+      || typeof courseRating !== "number" || !Number.isFinite(courseRating) || courseRating < 50 || courseRating > 100
+      || typeof slopeRating !== "number" || !Number.isInteger(slopeRating) || slopeRating < 55 || slopeRating > 155) return [];
     return [{ name, par, courseRating, slopeRating }];
   });
 }
@@ -92,14 +105,14 @@ function getCourseSetups(courses?: CourseSetup[]): CourseSetup[] {
 }
 
 function scoreEntries(roundId: number, data: TournamentData): ResultRow[] {
-  const round = rounds.find((item) => item.id === roundId);
+  const tournamentRounds = data.rounds ?? rounds;
+  const round = tournamentRounds.find((item) => item.id === roundId);
   if (!round) return [];
   const tee = getTee(data.courses, roundId);
   const entries = data.scores.filter((score) => score.roundId === roundId).map((score) => {
     const scoreTee = getTee(data.courses, roundId, score.teeId) ?? tee;
     const team = data.teams.find((item) => item.id === score.entryId);
-    if (isTeamFormat(round.format)) {
-      if (!team) return null;
+    if (team) {
       const playingHandicaps = team.playerIds
         .map((playerId) => data.players.find((player) => player.id === playerId))
         .filter((player): player is Player => player !== undefined)
@@ -152,7 +165,7 @@ function scoreEntries(roundId: number, data: TournamentData): ResultRow[] {
 
 function getOom(data: TournamentData) {
   const totals = new Map(data.players.map((player) => [player.id, 0]));
-  for (const round of rounds) {
+  for (const round of data.rounds ?? rounds) {
     for (const result of scoreEntries(round.id, data)) {
       for (const playerId of result.playerIds) {
         totals.set(playerId, (totals.get(playerId) ?? 0) + result.points);
@@ -163,10 +176,96 @@ function getOom(data: TournamentData) {
     .sort((a, b) => b.points - a.points || a.player.name.localeCompare(b.player.name, "nb"));
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isRoundFormat(value: string): value is RoundFormat {
+  return ROUND_FORMATS.some((format) => format === value);
+}
+
+function isValidPlayer(value: unknown): value is Player {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.name === "string"
+    && typeof value.handicap === "number"
+    && Number.isFinite(value.handicap)
+    && value.handicap >= 0
+    && value.handicap <= 54
+    && (value.handicapOverrides === undefined || (isRecord(value.handicapOverrides)
+      && Object.values(value.handicapOverrides).every((handicap) =>
+        typeof handicap === "number" && Number.isFinite(handicap) && handicap >= 0 && handicap <= 54,
+      )));
+}
+
+function isValidTeam(value: unknown): value is Team {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.name === "string"
+    && typeof value.roundId === "number"
+    && Number.isInteger(value.roundId)
+    && Array.isArray(value.playerIds)
+    && value.playerIds.length === 2
+    && value.playerIds.every((id) => typeof id === "string");
+}
+
+function isValidScore(value: unknown): value is Score {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.entryId === "string"
+    && typeof value.roundId === "number"
+    && Number.isInteger(value.roundId)
+    && Number.isInteger(value.strokes)
+    && typeof value.strokes === "number"
+    && value.strokes >= 40
+    && value.strokes <= 180
+    && typeof value.updatedAt === "string"
+    && (value.teeId === undefined || typeof value.teeId === "string");
+}
+
+function isValidTee(value: unknown): value is Tee {
+  return isRecord(value)
+    && typeof value.id === "string"
+    && typeof value.name === "string"
+    && typeof value.par === "number"
+    && Number.isInteger(value.par)
+    && value.par >= 54
+    && value.par <= 90
+    && typeof value.courseRating === "number"
+    && Number.isFinite(value.courseRating)
+    && value.courseRating >= 50
+    && value.courseRating <= 100
+    && typeof value.slopeRating === "number"
+    && Number.isInteger(value.slopeRating)
+    && value.slopeRating >= 55
+    && value.slopeRating <= 155;
+}
+
+function isValidRound(value: unknown): value is Round {
+  return isRecord(value)
+    && typeof value.id === "number"
+    && Number.isInteger(value.id)
+    && typeof value.course === "string"
+    && typeof value.format === "string"
+    && isRoundFormat(value.format)
+    && typeof value.startDate === "string"
+    && typeof value.endDate === "string"
+    && typeof value.location === "string"
+    && typeof value.par === "number";
+}
+
 function isValidData(value: unknown): value is TournamentData {
-  if (!value || typeof value !== "object") return false;
-  const data = value as Partial<TournamentData>;
-  return Array.isArray(data.players) && Array.isArray(data.teams) && Array.isArray(data.scores);
+  if (!isRecord(value) || !Array.isArray(value.players) || !Array.isArray(value.teams) || !Array.isArray(value.scores)) return false;
+  const optionalCoursesValid = value.courses === undefined || (Array.isArray(value.courses) && value.courses.every((course) =>
+    isRecord(course) && typeof course.roundId === "number" && Array.isArray(course.tees) && course.tees.every(isValidTee),
+  ));
+  const optionalRoundsValid = value.rounds === undefined || (Array.isArray(value.rounds)   && value.rounds.length > 0
+  && value.rounds.every(isValidRound));
+  return value.players.every(isValidPlayer)
+    && value.teams.every(isValidTeam)
+    && value.scores.every(isValidScore)
+    && optionalCoursesValid
+    && optionalRoundsValid;
 }
 
 function removeDemoData(data: TournamentData): TournamentData {
@@ -179,6 +278,7 @@ function removeDemoData(data: TournamentData): TournamentData {
     players: data.players.filter((player) => !DEMO_PLAYER_IDS.has(player.id)),
     teams,
     courses: data.courses?.length ? data.courses : defaultCourses,
+    rounds: data.rounds?.length ? data.rounds : rounds,
     scores: data.scores.filter((score) =>
       !DEMO_SCORE_IDS.has(score.id)
       && !DEMO_PLAYER_IDS.has(score.entryId)
@@ -197,7 +297,7 @@ function PlayerAvatar({ name, dark = false }: { name: string; dark?: boolean }) 
 }
 
 export default function Home() {
-  const [data, setData] = useState<TournamentData>({ players: [], teams: [], scores: [], courses: defaultCourses });
+  const [data, setData] = useState<TournamentData>({ players: [], teams: [], scores: [], courses: defaultCourses, rounds });
   const [view, setView] = useState<View>("overview");
   const [ready, setReady] = useState(false);
   const [toast, setToast] = useState("");
@@ -220,6 +320,19 @@ export default function Home() {
   const [pasteCourseText, setPasteCourseText] = useState("");
   const [parsedTees, setParsedTees] = useState<Omit<Tee, "id">[]>([]);
   const scoreImageInput = useRef<HTMLInputElement>(null);
+  const backupInput = useRef<HTMLInputElement>(null);
+  const [adminUnlocked, setAdminUnlocked] = useState(false);
+  const [showPinPrompt, setShowPinPrompt] = useState(false);
+  const [pinInput, setPinInput] = useState("");
+  const [adminError, setAdminError] = useState("");
+  const [editingPlayerId, setEditingPlayerId] = useState("");
+  const [playerNameDraft, setPlayerNameDraft] = useState("");
+  const [playerHandicapDraft, setPlayerHandicapDraft] = useState("");
+  const [overrideRoundId, setOverrideRoundId] = useState("1");
+  const [overrideHandicapDraft, setOverrideHandicapDraft] = useState("");
+  const [editingTeamId, setEditingTeamId] = useState("");
+  const [editingRoundId, setEditingRoundId] = useState<number | null>(null);
+  const [editingTeeId, setEditingTeeId] = useState("");
 
   useEffect(() => {
     try {
@@ -232,13 +345,19 @@ export default function Home() {
           const courses = defaultCourses.map((defaultCourse) =>
             savedCourses.find((course) => course.roundId === defaultCourse.roundId) ?? defaultCourse,
           );
-          setData({ ...cleaned, courses });
+          setData({ ...cleaned, courses, rounds: cleaned.rounds?.length ? cleaned.rounds : rounds });
         }
       }
     } catch (error) {
       console.error("Could not load tournament data from localStorage.", error);
     } finally {
       setReady(true);
+    }
+    try {
+      setAdminUnlocked(window.sessionStorage.getItem(ADMIN_SESSION_KEY) === "unlocked");
+    } catch (error) {
+      console.error("Could not read admin session state.", error);
+      showToast("Kunne ikke lese admin-økten fra nettleseren.");
     }
   }, []);
 
@@ -263,7 +382,8 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
-  const selectedRound = rounds.find((round) => round.id === selectedRoundId) ?? rounds[0];
+  const tournamentRounds = data.rounds ?? rounds;
+  const selectedRound = tournamentRounds.find((round) => round.id === selectedRoundId) ?? tournamentRounds[0];
   const selectedRoundTeams = data.teams.filter((team) => team.roundId === selectedRoundId);
   const selectedEntries = isTeamFormat(selectedRound.format) ? selectedRoundTeams : data.players;
   const selectedCourse = getCourseSetup(data.courses, selectedRoundId);
@@ -306,13 +426,51 @@ export default function Home() {
   const results = useMemo(() => scoreEntries(selectedRoundId, data), [selectedRoundId, data]);
   const leaderboardResults = useMemo(() => scoreEntries(leaderboardRoundId, data), [leaderboardRoundId, data]);
   const oom = useMemo(() => getOom(data), [data]);
-  const activeRound = rounds.find((round) => getRoundStatus(round) === "active");
-  const nextRound = activeRound ?? rounds.find((round) => getRoundStatus(round) === "upcoming") ?? rounds[0];
-  const finishedCount = rounds.filter((round) => getRoundStatus(round) === "completed").length;
+  const activeRound = tournamentRounds.find((round) => getRoundStatus(round) === "active");
+  const nextRound = activeRound ?? tournamentRounds.find((round) => getRoundStatus(round) === "upcoming") ?? tournamentRounds[0];
+  const finishedCount = tournamentRounds.filter((round) => getRoundStatus(round) === "completed").length;
   const activeCount = data.scores.length;
 
   function showToast(message: string) {
     setToast(message);
+  }
+
+  function handleAdminUnlock(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pinInput !== ADMIN_PIN) {
+      setAdminError("Feil PIN-kode.");
+      setPinInput("");
+      return;
+    }
+    try {
+      window.sessionStorage.setItem(ADMIN_SESSION_KEY, "unlocked");
+      setAdminUnlocked(true);
+      setShowPinPrompt(false);
+      setPinInput("");
+      setAdminError("");
+      showToast("Admin-modus er aktiv.");
+    } catch (error) {
+      console.error("Could not save admin session state.", error);
+      setAdminError("Kunne ikke lagre admin-økten i denne nettleseren.");
+    }
+  }
+
+  function handleAdminLock() {
+    try {
+      window.sessionStorage.removeItem(ADMIN_SESSION_KEY);
+      setAdminUnlocked(false);
+      setEditingPlayerId("");
+      setEditingTeamId("");
+      setEditingRoundId(null);
+      setEditingTeeId("");
+      setShowPinPrompt(false);
+      setPinInput("");
+      setAdminError("");
+      showToast("Admin-modus er låst.");
+    } catch (error) {
+      console.error("Could not clear admin session state.", error);
+      showToast("Kunne ikke låse admin-modus. Prøv igjen.");
+    }
   }
 
   function changeView(nextView: View) {
@@ -328,8 +486,19 @@ export default function Home() {
     setEditingScoreId("");
   }
 
+  function startEditingScore(score: Score) {
+    if (!adminUnlocked) return;
+    setView("scorecard");
+    setSelectedRoundId(score.roundId);
+    setEntryId(score.entryId);
+    setStrokes(String(score.strokes));
+    setSelectedTeeId(score.teeId ?? getCourseSetup(data.courses, score.roundId).tees[0]?.id ?? "");
+    setEditingScoreId(score.id);
+  }
+
   function handleAddPlayer(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!adminUnlocked) return;
     const normalizedName = playerName.trim();
     const parsedHandicap = Number(handicap.replace(",", "."));
     if (!normalizedName || !Number.isFinite(parsedHandicap) || parsedHandicap < 0 || parsedHandicap > 54) {
@@ -347,8 +516,62 @@ export default function Home() {
     showToast(`${normalizedName} er lagt til i startfeltet.`);
   }
 
+  function startEditingPlayer(player: Player) {
+    setEditingPlayerId(player.id);
+    setPlayerNameDraft(player.name);
+    setPlayerHandicapDraft(player.handicap.toFixed(1));
+    setOverrideRoundId(String(nextRound.id));
+    setOverrideHandicapDraft(player.handicapOverrides?.[String(nextRound.id)]?.toFixed(1) ?? "");
+  }
+
+  function handleSavePlayer(event: React.FormEvent<HTMLFormElement>, player: Player) {
+    event.preventDefault();
+    if (!adminUnlocked) return;
+    const name = playerNameDraft.trim();
+    const startHandicap = Number(playerHandicapDraft.replace(",", "."));
+    const override = overrideHandicapDraft.trim() ? Number(overrideHandicapDraft.replace(",", ".")) : undefined;
+    if (!name || !Number.isFinite(startHandicap) || startHandicap < 0 || startHandicap > 54
+      || (override !== undefined && (!Number.isFinite(override) || override < 0 || override > 54))) {
+      showToast("Skriv inn navn og gyldige handicapverdier mellom 0 og 54.");
+      return;
+    }
+    if (data.players.some((item) => item.id !== player.id && item.name.toLocaleLowerCase("nb") === name.toLocaleLowerCase("nb"))) {
+      showToast("En annen spiller med dette navnet finnes allerede.");
+      return;
+    }
+    if (override === undefined && player.handicapOverrides?.[overrideRoundId] !== undefined
+      && !window.confirm("Er du sikker på at du vil slette dette? Den manuelle handicap-overstyringen fjernes.")) return;
+    const handicapOverrides = { ...player.handicapOverrides };
+    if (override === undefined) delete handicapOverrides[overrideRoundId];
+    else handicapOverrides[overrideRoundId] = Math.round(override * 10) / 10;
+    setData((current) => ({
+      ...current,
+      players: current.players.map((item) => item.id === player.id
+        ? { ...item, name, handicap: Math.round(startHandicap * 10) / 10, handicapOverrides }
+        : item),
+    }));
+    setEditingPlayerId("");
+    showToast("Spiller og handicap er oppdatert.");
+  }
+
+  function handleDeletePlayer(player: Player) {
+    if (!adminUnlocked || !window.confirm("Er du sikker på at du vil slette dette? Spilleren, lagene og tilhørende resultater fjernes.")) return;
+    setData((current) => {
+      const removedTeams = new Set(current.teams.filter((team) => team.playerIds.includes(player.id)).map((team) => team.id));
+      return {
+        ...current,
+        players: current.players.filter((item) => item.id !== player.id),
+        teams: current.teams.filter((team) => !removedTeams.has(team.id)),
+        scores: current.scores.filter((score) => score.entryId !== player.id && !removedTeams.has(score.entryId)),
+      };
+    });
+    if (editingPlayerId === player.id) setEditingPlayerId("");
+    showToast(`${player.name} og tilhørende data er slettet.`);
+  }
+
   function handleAddTeam(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!adminUnlocked) return;
     if (!isTeamFormat(selectedRound.format)) {
       showToast("Velg en lagrunde før du setter sammen et lag.");
       return;
@@ -375,8 +598,60 @@ export default function Home() {
     showToast(`${team.name} er klart for ${selectedRound.course}.`);
   }
 
+  function handleSaveTeam(team: Team): boolean {
+    if (!adminUnlocked) return false;
+    const round = tournamentRounds.find((item) => item.id === team.roundId);
+    if (!round || !isTeamFormat(round.format) || !team.name.trim()
+      || team.playerIds[0] === team.playerIds[1]
+      || team.playerIds.some((id) => !data.players.some((player) => player.id === id))) {
+      showToast("Velg en gyldig lagrunde, et lagnavn og to forskjellige spillere.");
+      return false;
+    }
+    const conflict = data.teams.some((item) =>
+      item.id !== team.id && item.roundId === team.roundId
+      && team.playerIds.some((playerId) => item.playerIds.includes(playerId)),
+    );
+    if (conflict) {
+      showToast("En av spillerne er allerede på et annet lag i denne runden.");
+      return false;
+    }
+    const movingScoredTeam = data.teams.find((item) => item.id === team.id)?.roundId !== team.roundId
+      && data.scores.some((score) => score.entryId === team.id);
+    if (movingScoredTeam && data.scores.some((score) =>
+      score.roundId === team.roundId && score.entryId !== team.id
+      && (team.playerIds.includes(score.entryId)
+        || data.teams.some((item) => item.id === score.entryId && item.playerIds.some((id) => team.playerIds.includes(id)))),
+    )) {
+      showToast("Spilleren har allerede et scorekort i den valgte runden.");
+      return false;
+    }
+    setData((current) => ({
+      ...current,
+      teams: current.teams.map((item) => item.id === team.id ? { ...team, name: team.name.trim() } : item),
+      scores: current.scores.map((score) => score.entryId === team.id ? {
+        ...score,
+        roundId: team.roundId,
+        teeId: getCourseSetup(current.courses, team.roundId).tees[0]?.id,
+      } : score),
+    }));
+    setEditingTeamId("");
+    showToast("Lagoppsettet er oppdatert.");
+    return true;
+  }
+
+  function handleDeleteTeam(team: Team) {
+    if (!adminUnlocked || !window.confirm("Er du sikker på at du vil slette dette? Tilhørende scorekort fjernes også.")) return;
+    setData((current) => ({
+      ...current,
+      teams: current.teams.filter((item) => item.id !== team.id),
+      scores: current.scores.filter((score) => score.entryId !== team.id),
+    }));
+    showToast(`${team.name} og tilhørende scorekort er slettet.`);
+  }
+
   function handleSaveScore(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (editingScoreId && !adminUnlocked) return;
     const parsedScore = Number(strokes);
     if (!entryId || !Number.isInteger(parsedScore) || parsedScore < 40 || parsedScore > 180) {
       showToast("Velg spiller/lag og skriv inn en gyldig score (40–180).");
@@ -391,6 +666,10 @@ export default function Home() {
       showToast("Spilleren eller laget finnes ikke i denne runden.");
       return;
     }
+    const conflictingScore = data.scores.find((item) =>
+      item.roundId === selectedRoundId && item.entryId === entryId && item.id !== editingScoreId,
+    );
+    if (conflictingScore && !window.confirm("Er du sikker på at du vil slette dette? Det registrerte resultatet erstattes av den nye scoren.")) return;
     const score: Score = {
       id: editingScoreId || crypto.randomUUID(),
       roundId: selectedRoundId,
@@ -409,6 +688,7 @@ export default function Home() {
   }
 
   function handleDeleteScore(score: Score) {
+    if (!adminUnlocked || !window.confirm("Er du sikker på at du vil slette dette? Resultatet fjernes fra turneringen.")) return;
     setData((current) => ({ ...current, scores: current.scores.filter((item) => item.id !== score.id) }));
     if (editingScoreId === score.id) {
       setEditingScoreId("");
@@ -416,6 +696,15 @@ export default function Home() {
       setStrokes("");
     }
     showToast("Resultatet er slettet. HCP-historikken er beregnet på nytt.");
+  }
+
+  function handleResetRoundScores(roundId: number) {
+    if (!adminUnlocked || !window.confirm("Er du sikker på at du vil slette dette? Alle resultater i denne runden fjernes.")) return;
+    setData((current) => ({ ...current, scores: current.scores.filter((score) => score.roundId !== roundId) }));
+    setEditingScoreId("");
+    setEntryId("");
+    setStrokes("");
+    showToast(`Resultatene for runde ${roundId} er nullstilt.`);
   }
 
   async function handleScanImage(file?: File) {
@@ -463,13 +752,14 @@ export default function Home() {
 
   function handleAddTee(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!adminUnlocked) return;
     const name = newTeeName.trim();
     if (!name) {
       showToast("Skriv inn et navn på tee-stedet.");
       return;
     }
     const setup = getCourseSetup(data.courses, courseRoundId);
-    const coursePar = rounds.find((round) => round.id === courseRoundId)?.par ?? 72;
+    const coursePar = tournamentRounds.find((round) => round.id === courseRoundId)?.par ?? 72;
     const tee: Tee = { id: crypto.randomUUID(), name, par: coursePar, courseRating: coursePar, slopeRating: 113 };
     setData((current) => ({
       ...current,
@@ -483,6 +773,7 @@ export default function Home() {
   }
 
   function handleUpdateTee(roundId: number, tee: Tee) {
+    if (!adminUnlocked) return;
     setData((current) => ({
       ...current,
       courses: getCourseSetups(current.courses).map((course) =>
@@ -495,15 +786,20 @@ export default function Home() {
   }
 
   function handleDeleteTee(roundId: number, teeId: string) {
+    if (!adminUnlocked) return;
     const setup = getCourseSetup(data.courses, roundId);
     if (setup.tees.length <= 1) {
       showToast("En bane må ha minst ett tee-sted.");
       return;
     }
-    if (data.scores.some((score) => score.roundId === roundId && score.teeId === teeId)) {
+    if (data.scores.some((score) =>
+      score.roundId === roundId
+      && (score.teeId === teeId || (!score.teeId && setup.tees[0]?.id === teeId)),
+    )) {
       showToast("Tee-stedet brukes av et scorekort. Rediger verdiene i stedet for å slette det.");
       return;
     }
+    if (!window.confirm("Er du sikker på at du vil slette dette? Tee-stedet fjernes fra banen.")) return;
     setData((current) => ({
       ...current,
       courses: getCourseSetups(current.courses).map((course) =>
@@ -517,13 +813,17 @@ export default function Home() {
   }
 
   function handleParseCourseText() {
+    if (!adminUnlocked) return;
     const parsed = parseTeeText(pasteCourseText);
     setParsedTees(parsed);
     if (!parsed.length) showToast("Fant ingen komplette tee-linjer. Bruk formatet: Hvit · Par 72 · CR 73,1 · Slope 132.");
   }
 
   function handleImportParsedTees() {
+    if (!adminUnlocked) return;
     if (!parsedTees.length) return;
+    if (getCourseSetup(data.courses, courseRoundId).tees.length > 0
+      && !window.confirm("Er du sikker på at du vil slette dette? Importen erstatter tee-oppsettet som ikke brukes av scorekort.")) return;
     setData((current) => {
       const courses = getCourseSetups(current.courses).map((course) => {
         if (course.roundId !== courseRoundId) return course;
@@ -533,7 +833,8 @@ export default function Home() {
         });
         const importedIds = new Set(tees.map((tee) => tee.id));
         const usedTees = course.tees.filter((tee) =>
-          current.scores.some((score) => score.roundId === courseRoundId && score.teeId === tee.id)
+          current.scores.some((score) => score.roundId === courseRoundId
+            && (score.teeId === tee.id || (!score.teeId && course.tees[0]?.id === tee.id)))
           && !importedIds.has(tee.id),
         );
         return { ...course, tees: [...tees, ...usedTees] };
@@ -543,6 +844,96 @@ export default function Home() {
     setParsedTees([]);
     setPasteCourseText("");
     showToast(`${parsedTees.length} tee-steder er importert. Kontroller verdiene før bruk.`);
+  }
+
+  function handleSaveRound(round: Round) {
+    if (!adminUnlocked) return;
+    if (!round.course.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(round.startDate)
+      || !/^\d{4}-\d{2}-\d{2}$/.test(round.endDate) || round.startDate > round.endDate) {
+      showToast("Skriv inn banenavn og gyldige datoer i riktig rekkefølge.");
+      return;
+    }
+    setData((current) => ({
+      ...current,
+      rounds: (current.rounds ?? rounds).map((item) => item.id === round.id ? { ...round, course: round.course.trim() } : item),
+    }));
+    setEditingRoundId(null);
+    showToast(`Runde ${round.id} er oppdatert.`);
+  }
+
+  function handleExportBackup() {
+    if (!adminUnlocked) return;
+    try {
+      const backup = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        data: {
+          ...data,
+          courses: getCourseSetups(data.courses),
+          rounds: tournamentRounds,
+          roundHandicaps: getTournamentHandicapSnapshot(data.players, data),
+        },
+      };
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `winter-tour-26-27-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showToast("Sikkerhetskopi er lastet ned.");
+    } catch (error) {
+      console.error("Could not export tournament backup.", error);
+      showToast("Kunne ikke eksportere sikkerhetskopien.");
+    }
+  }
+
+  async function handleImportBackup(file?: File) {
+    if (!adminUnlocked || !file) return;
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      const candidate = parsed && typeof parsed === "object" && "data" in parsed
+        ? (parsed as { data: unknown }).data
+        : parsed;
+      if (!isValidData(candidate)) {
+        showToast("Sikkerhetskopien har ugyldig format eller mangler turneringsdata.");
+        return;
+      }
+      if (!window.confirm("Er du sikker på at du vil importere denne sikkerhetskopien? Nåværende data blir erstattet.")) return;
+      setData({
+        ...candidate,
+        courses: getCourseSetups(candidate.courses),
+        rounds: candidate.rounds?.length ? candidate.rounds : rounds,
+      });
+      setEditingPlayerId("");
+      setEditingTeamId("");
+      setEditingRoundId(null);
+      setEditingTeeId("");
+      showToast("Sikkerhetskopien er importert.");
+    } catch (error) {
+      console.error("Could not import tournament backup.", error);
+      showToast("Kunne ikke lese filen. Velg en gyldig Winter Tour JSON-sikkerhetskopi.");
+    }
+  }
+
+  function handleResetTournament() {
+    if (!adminUnlocked) return;
+    if (!window.confirm("Er du sikker på at du vil slette dette? Alle registrerte resultater fjernes."))
+      return;
+    if (!window.confirm("Nullstill turneringen helt før runde 1? Dette kan ikke angres uten en sikkerhetskopi."))
+      return;
+    setData((current) => {
+      const tournament = removeDemoData(current);
+      return {
+        ...tournament,
+        players: tournament.players.map((player) => ({ ...player, handicapOverrides: undefined })),
+        scores: [],
+      };
+    });
+    setEditingPlayerId("");
+    setEditingTeamId("");
+    setEditingRoundId(null);
+    showToast("Resultater og testscorer er nullstilt.");
   }
 
   const playerOptions = data.players.filter((player) => !selectedRoundTeams.some((team) => team.playerIds.includes(player.id)));
@@ -556,6 +947,11 @@ export default function Home() {
         </div>
         <div className="topbar-right">
           <span className="season-pill"><CalendarDays size={13} /> 9 runder <span style={{ color: "#f15a24" }}>·</span> nov – mar</span>
+          {adminUnlocked ? (
+            <div className="admin-topbar"><span className="admin-status">Admin-modus aktiv</span><button className="admin-lock-button" type="button" onClick={handleAdminLock}><Lock size={13} /> Lås</button></div>
+          ) : (
+            <button className="admin-trigger" type="button" onClick={() => { setShowPinPrompt(true); setAdminError(""); }}><Lock size={13} /> Admin</button>
+          )}
           <span className="avatar">WT</span>
         </div>
       </header>
@@ -581,6 +977,33 @@ export default function Home() {
             </button>
           ))}
         </nav>
+
+        {adminUnlocked && (
+          <section className="admin-toolbar" aria-label="Adminverktøy">
+            <div className="admin-toolbar-copy"><strong>Adminverktøy</strong><span>Sikkerhetskopi og nullstilling av turneringsdata</span></div>
+            <input ref={backupInput} className="visually-hidden" type="file" accept="application/json,.json" onChange={(event) => { void handleImportBackup(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />
+            <div className="admin-toolbar-actions">
+              <button className="secondary-button" type="button" onClick={handleExportBackup}><Download size={14} /> Eksporter sikkerhetskopi</button>
+              <button className="secondary-button" type="button" onClick={() => backupInput.current?.click()}><Upload size={14} /> Importer sikkerhetskopi</button>
+              <button className="admin-reset-button" type="button" onClick={handleResetTournament}><RotateCcw size={14} /> Nullstill alle resultater / testdata</button>
+            </div>
+          </section>
+        )}
+
+        {showPinPrompt && !adminUnlocked && (
+          <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setShowPinPrompt(false); setPinInput(""); setAdminError(""); } }}>
+            <form className="pin-dialog" onSubmit={handleAdminUnlock} role="dialog" aria-modal="true" aria-labelledby="admin-pin-title">
+              <button className="modal-close" type="button" aria-label="Lukk" onClick={() => { setShowPinPrompt(false); setPinInput(""); setAdminError(""); }}><X size={17} /></button>
+              <span className="pin-icon"><Lock size={19} /></span>
+              <h2 id="admin-pin-title">Admin</h2>
+              <p>Skriv inn PIN-koden for å låse opp redigering.</p>
+              <label className="visually-hidden" htmlFor="admin-pin">PIN-kode</label>
+              <input id="admin-pin" autoFocus inputMode="numeric" type="password" maxLength={12} value={pinInput} onChange={(event) => setPinInput(event.target.value)} placeholder="PIN-kode" />
+              {adminError && <span className="form-error" role="alert">{adminError}</span>}
+              <button className="primary-button" type="submit"><Unlock size={14} /> Lås opp</button>
+            </form>
+          </div>
+        )}
 
         {view === "overview" && (
           <section className="panel panel-dark leader-card home-leaderboard">
@@ -618,7 +1041,10 @@ export default function Home() {
               <section className="panel">
                 <div className="panel-head"><div><div className="panel-title">Turneringsprogram</div><div className="panel-kicker">Ni stopp. Én mester.</div></div><button className="subtle-link" onClick={() => changeView("scorecard")}>Scorekort <ArrowRight size={13} /></button></div>
                 <div className="round-list">
-                  {rounds.map((round) => <RoundRow key={round.id} round={round} scores={data.scores} active={round.id === nextRound.id} onSelect={() => { selectRound(round.id); setView("scorecard"); }} />)}
+                  {tournamentRounds.map((round) => <div className="round-admin-row" key={round.id}>
+                    <RoundRow round={round} scores={data.scores} active={round.id === nextRound.id} admin={adminUnlocked} onEdit={() => setEditingRoundId(round.id)} onSelect={() => { selectRound(round.id); setView("scorecard"); }} />
+                    {adminUnlocked && editingRoundId === round.id && <RoundEditor round={round} onSave={handleSaveRound} onCancel={() => setEditingRoundId(null)} />}
+                  </div>)}
                 </div>
               </section>
             </div>
@@ -630,11 +1056,11 @@ export default function Home() {
             <SectionHeading eyebrow="Startfeltet" title="Spillere & lag" description="Legg til spillere og sett sammen par for hver lagrunde." />
             <div className="content-panel">
               <div className="content-panel-header"><div><h3>Legg til spiller</h3><p>Start-HCP brukes som grunnlag for handicaputviklingen gjennom turneringen.</p></div><span className="season-pill"><Users size={13} /> {data.players.length} spillere</span></div>
-              <form className="form-row" onSubmit={handleAddPlayer}>
-                <div className="field" style={{ flex: 2 }}><label htmlFor="player-name">Spillernavn</label><input id="player-name" value={playerName} onChange={(event) => setPlayerName(event.target.value)} placeholder="F.eks. Alex Hansen" /></div>
-                <div className="field" style={{ maxWidth: 140 }}><label htmlFor="player-hcp">Start-HCP</label><input id="player-hcp" type="number" min="0" max="54" step="0.1" value={handicap} onChange={(event) => setHandicap(event.target.value)} placeholder="12.4" /></div>
-                <button className="primary-button" type="submit"><Plus size={14} /> Legg til</button>
-              </form>
+              {adminUnlocked ? <form className="form-row" onSubmit={handleAddPlayer}>
+                  <div className="field" style={{ flex: 2 }}><label htmlFor="player-name">Spillernavn</label><input id="player-name" value={playerName} onChange={(event) => setPlayerName(event.target.value)} placeholder="F.eks. Alex Hansen" /></div>
+                  <div className="field" style={{ maxWidth: 140 }}><label htmlFor="player-hcp">Start-HCP</label><input id="player-hcp" type="number" min="0" max="54" step="0.1" value={handicap} onChange={(event) => setHandicap(event.target.value)} placeholder="12.4" /></div>
+                  <button className="primary-button" type="submit"><Plus size={14} /> Legg til</button>
+                </form> : <div className="admin-locked-note"><Lock size={13} /> Lås opp Admin for å legge til, redigere eller slette spillere.</div>}
               <div className="player-list">
                 {data.players.map((player) => {
                   const currentHandicap = getTournamentHandicap(player, nextRound.id, data);
@@ -645,6 +1071,17 @@ export default function Home() {
                       <div className="player-card-main">
                         <div className="player-card-name">{player.name}</div>
                         <div className="player-card-meta">Start-HCP {player.handicap.toFixed(1)} · Turnerings-HCP {currentHandicap.toFixed(1)}</div>
+                        {adminUnlocked && <div className="entry-actions">
+                          <button className="text-action" type="button" onClick={() => startEditingPlayer(player)}><Pencil size={13} /> Rediger</button>
+                          <button className="text-action danger-text" type="button" onClick={() => handleDeletePlayer(player)}><Trash2 size={13} /> Slett</button>
+                        </div>}
+                        {adminUnlocked && editingPlayerId === player.id && <form className="admin-edit-form" onSubmit={(event) => handleSavePlayer(event, player)}>
+                          <div className="field"><label htmlFor={`edit-player-name-${player.id}`}>Spillernavn</label><input id={`edit-player-name-${player.id}`} value={playerNameDraft} onChange={(event) => setPlayerNameDraft(event.target.value)} required /></div>
+                          <div className="field"><label htmlFor={`edit-player-hcp-${player.id}`}>Start-HCP</label><input id={`edit-player-hcp-${player.id}`} type="number" min="0" max="54" step="0.1" value={playerHandicapDraft} onChange={(event) => setPlayerHandicapDraft(event.target.value)} required /></div>
+                          <div className="field"><label htmlFor={`override-round-${player.id}`}>Overstyr Turnerings-HCP for</label><select id={`override-round-${player.id}`} value={overrideRoundId} onChange={(event) => { setOverrideRoundId(event.target.value); setOverrideHandicapDraft(player.handicapOverrides?.[event.target.value]?.toFixed(1) ?? ""); }}>{tournamentRounds.map((round) => <option key={round.id} value={round.id}>Runde {round.id}</option>)}</select></div>
+                          <div className="field"><label htmlFor={`override-hcp-${player.id}`}>Manuell HCP (tomt = automatisk)</label><input id={`override-hcp-${player.id}`} type="number" min="0" max="54" step="0.1" value={overrideHandicapDraft} onChange={(event) => setOverrideHandicapDraft(event.target.value)} placeholder="Automatisk" /></div>
+                          <div className="admin-edit-actions"><button className="secondary-button" type="submit"><Save size={13} /> Lagre</button><button className="text-action" type="button" onClick={() => setEditingPlayerId("")}>Avbryt</button></div>
+                        </form>}
                         <details className="hcp-history">
                           <summary>HCP-historikk per runde</summary>
                           <div className="hcp-history-list">
@@ -652,6 +1089,7 @@ export default function Home() {
                               <span key={item.roundId} className="hcp-history-item">
                                 R{item.roundId}: {item.handicap.toFixed(1)}
                                 {item.adjustment !== undefined && <small>{item.adjustment > 0 ? "+" : ""}{item.adjustment.toFixed(1)}</small>}
+                                {player.handicapOverrides?.[item.roundId] !== undefined && <small>manuell</small>}
                               </span>
                             ))}
                           </div>
@@ -666,14 +1104,16 @@ export default function Home() {
 
             <div className="content-panel" style={{ marginTop: 15 }}>
               <div className="content-panel-header"><div><h3>Lagoppstilling</h3><p>Opprett 2-mannslag for valgt runde. Hver spiller kan kun være på ett lag per runde.</p></div><span className="team-icon"><Users size={16} /></span></div>
-              <form className="team-builder" onSubmit={handleAddTeam}>
-                <div className="field"><label htmlFor="team-round">Velg lagrunde</label><select id="team-round" value={selectedRoundId} onChange={(event) => { selectRound(Number(event.target.value)); setTeamPlayerOne(""); setTeamPlayerTwo(""); }}><option value="" disabled>Velg runde</option>{rounds.filter((round) => isTeamFormat(round.format)).map((round) => <option key={round.id} value={round.id}>Runde {round.id} · {round.course} ({round.format})</option>)}</select></div>
-                <div className="field"><label htmlFor="team-first">Spiller 1</label><select id="team-first" value={teamPlayerOne} onChange={(event) => setTeamPlayerOne(event.target.value)}><option value="">Velg spiller</option>{playerOptions.filter((player) => player.id !== teamPlayerTwo).map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}</select></div>
-                <div className="field"><label htmlFor="team-second">Spiller 2</label><select id="team-second" value={teamPlayerTwo} onChange={(event) => setTeamPlayerTwo(event.target.value)}><option value="">Velg spiller</option>{playerOptions.filter((player) => player.id !== teamPlayerOne).map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}</select></div>
-                <button className="primary-button" type="submit"><Plus size={14} /> Opprett lag</button>
-              </form>
+              {adminUnlocked ? <form className="team-builder" onSubmit={handleAddTeam}>
+                  <div className="field"><label htmlFor="team-round">Velg lagrunde</label><select id="team-round" value={selectedRoundId} onChange={(event) => { selectRound(Number(event.target.value)); setTeamPlayerOne(""); setTeamPlayerTwo(""); }}><option value="" disabled>Velg runde</option>{tournamentRounds.filter((round) => isTeamFormat(round.format)).map((round) => <option key={round.id} value={round.id}>Runde {round.id} · {round.course} ({round.format})</option>)}</select></div>
+                  <div className="field"><label htmlFor="team-first">Spiller 1</label><select id="team-first" value={teamPlayerOne} onChange={(event) => setTeamPlayerOne(event.target.value)}><option value="">Velg spiller</option>{playerOptions.filter((player) => player.id !== teamPlayerTwo).map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}</select></div>
+                  <div className="field"><label htmlFor="team-second">Spiller 2</label><select id="team-second" value={teamPlayerTwo} onChange={(event) => setTeamPlayerTwo(event.target.value)}><option value="">Velg spiller</option>{playerOptions.filter((player) => player.id !== teamPlayerOne).map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}</select></div>
+                  <button className="primary-button" type="submit"><Plus size={14} /> Opprett lag</button>
+                </form> : <div className="admin-locked-note"><Lock size={13} /> Lås opp Admin for å opprette, redigere eller slette lag.</div>}
               {selectedRoundTeams.length ? (
-                <div className="team-list">{selectedRoundTeams.map((team) => <TeamCard key={team.id} team={team} players={data.players} />)}</div>
+                <div className="team-list">{selectedRoundTeams.map((team) => editingTeamId === team.id && adminUnlocked
+                  ? <TeamEditor key={team.id} team={team} players={data.players} rounds={tournamentRounds} teams={data.teams} onSave={handleSaveTeam} onCancel={() => setEditingTeamId("")} />
+                  : <TeamCard key={team.id} team={team} players={data.players} admin={adminUnlocked} onEdit={() => setEditingTeamId(team.id)} onDelete={() => handleDeleteTeam(team)} />)}</div>
               ) : <div className="empty-state">Ingen lag for {selectedRound.course} ennå. Velg to spillere for å opprette det første laget.</div>}
             </div>
           </section>
@@ -690,7 +1130,12 @@ export default function Home() {
                   <button type="button" className={`segment${scoreMethod === "scan" ? " selected" : ""}`} onClick={() => setScoreMethod("scan")} role="tab" aria-selected={scoreMethod === "scan"}><ScanLine size={13} /> Skann scorekort</button>
                 </div>
                 <form className="score-form" onSubmit={handleSaveScore}>
-                  <div className="field"><label htmlFor="score-round">Runde / bane</label><select id="score-round" value={selectedRoundId} onChange={(event) => selectRound(Number(event.target.value))}><option value="" disabled>Velg runde</option>{rounds.map((round) => <option key={round.id} value={round.id}>Runde {round.id} · {round.course}</option>)}</select></div>
+                  <div className="field"><label htmlFor="score-round">Runde / bane</label><select id="score-round" value={selectedRoundId} onChange={(event) => {
+                      const roundId = Number(event.target.value);
+                      setSelectedRoundId(roundId);
+                      setSelectedTeeId(getCourseSetup(data.courses, roundId).tees[0]?.id ?? "");
+                      setEntryId("");
+                    }}><option value="" disabled>Velg runde</option>{tournamentRounds.map((round) => <option key={round.id} value={round.id}>Runde {round.id} · {round.course}</option>)}</select></div>
                   <div className="field"><label htmlFor="score-tee">Tee-sted</label><select id="score-tee" value={selectedTee?.id ?? ""} onChange={(event) => setSelectedTeeId(event.target.value)}><option value="">Velg tee</option>{selectedCourse.tees.map((tee) => <option key={tee.id} value={tee.id}>{tee.name} · Par {tee.par} · CR {tee.courseRating.toFixed(1)} · Slope {tee.slopeRating}</option>)}</select></div>
                   <div className="field"><label htmlFor="score-player">{isTeamFormat(selectedRound.format) ? "Lag" : "Spiller"}</label><select id="score-player" value={entryId} onChange={(event) => setEntryId(event.target.value)}><option value="">Velg {isTeamFormat(selectedRound.format) ? "lag" : "spiller"}</option>{selectedEntries.map((entry) => <option key={entry.id} value={entry.id}>{isTeamFormat(selectedRound.format) ? (entry as Team).name : (entry as Player).name}</option>)}</select></div>
                   <div className="field"><label htmlFor="score-strokes">Brutto slag</label><input id="score-strokes" type="number" min="40" max="180" step="1" value={strokes} onChange={(event) => setStrokes(event.target.value)} placeholder={`Par ${selectedRound.par} · f.eks. 74`} /></div>
@@ -732,17 +1177,12 @@ export default function Home() {
                 </form>
               </section>
               <section className="content-panel">
-                <div className="content-panel-header"><div><h3>Runde {selectedRound.id} · {selectedRound.course}</h3><p>{formatPeriod(selectedRound)} · {selectedRound.format} · Par {selectedTee?.par ?? selectedRound.par}</p></div><span className={`status ${getRoundStatus(selectedRound)}`}>{getStatusLabel(getRoundStatus(selectedRound))}</span></div>
+                <div className="content-panel-header"><div><h3>Runde {selectedRound.id} · {selectedRound.course}</h3><p>{formatPeriod(selectedRound)} · {selectedRound.format} · Par {selectedTee?.par ?? selectedRound.par}</p></div><div className="scorecard-admin-actions"><span className={`status ${getRoundStatus(selectedRound)}`}>{getStatusLabel(getRoundStatus(selectedRound))}</span>{adminUnlocked && results.length > 0 && <button className="admin-reset-button" type="button" onClick={() => handleResetRoundScores(selectedRoundId)}><RotateCcw size={13} /> Nullstill runden</button>}</div></div>
                 {results.length ? <ScoreResults
                   results={results}
                   players={data.players}
-                  onEdit={(score) => {
-                    selectRound(score.roundId);
-                    setEntryId(score.entryId);
-                    setStrokes(String(score.strokes));
-                    setSelectedTeeId(score.teeId ?? getCourseSetup(data.courses, score.roundId).tees[0]?.id ?? "");
-                    setEditingScoreId(score.id);
-                  }}
+                  admin={adminUnlocked}
+                  onEdit={startEditingScore}
                   onDelete={handleDeleteScore}
                 /> : <div className="empty-state">Scorekortet er tomt ennå.<br />Legg inn første resultat for å se rundens leaderboard.</div>}
               </section>
@@ -759,7 +1199,7 @@ export default function Home() {
                   <button className={`segment${leaderboardMode === "oom" ? " selected" : ""}`} onClick={() => setLeaderboardMode("oom")} role="tab" aria-selected={leaderboardMode === "oom"}>Order of Merit</button>
                   <button className={`segment${leaderboardMode === "round" ? " selected" : ""}`} onClick={() => setLeaderboardMode("round")} role="tab" aria-selected={leaderboardMode === "round"}>Runderesultat</button>
                 </div>
-                {leaderboardMode === "round" && <div className="field" style={{ minWidth: 215, flex: "0 1 270px" }}><label htmlFor="leader-round">Velg runde</label><select id="leader-round" value={leaderboardRoundId} onChange={(event) => setLeaderboardRoundId(Number(event.target.value))}><option value="" disabled>Velg runde</option>{rounds.map((round) => <option key={round.id} value={round.id}>Runde {round.id} · {round.course}</option>)}</select></div>}
+                {leaderboardMode === "round" && <div className="field" style={{ minWidth: 215, flex: "0 1 270px" }}><label htmlFor="leader-round">Velg runde</label><select id="leader-round" value={leaderboardRoundId} onChange={(event) => setLeaderboardRoundId(Number(event.target.value))}><option value="" disabled>Velg runde</option>{tournamentRounds.map((round) => <option key={round.id} value={round.id}>Runde {round.id} · {round.course}</option>)}</select></div>}
               </div>
               {leaderboardMode === "oom" ? (
                 <>
@@ -770,7 +1210,7 @@ export default function Home() {
                 </>
               ) : leaderboardResults.length ? (
                 <>
-                  <ScoreResults results={leaderboardResults} players={data.players} />
+                  <ScoreResults results={leaderboardResults} players={data.players} admin={adminUnlocked} onEdit={startEditingScore} onDelete={handleDeleteScore} />
                   <div className="leaderboard-foot">Rundepoeng deles ut etter plassering og legges til Order of Merit.</div>
                 </>
               ) : <div className="empty-state">Ingen resultater registrert for denne runden ennå.</div>}
@@ -787,16 +1227,27 @@ export default function Home() {
                 <Flag size={17} color="#f15a24" />
               </div>
               <div className="form-row">
-                <div className="field"><label htmlFor="course-round">Turneringsbane</label><select id="course-round" value={courseRoundId} onChange={(event) => { setCourseRoundId(Number(event.target.value)); setParsedTees([]); }}><option value="" disabled>Velg bane</option>{rounds.map((round) => <option key={round.id} value={round.id}>Runde {round.id} · {round.course}</option>)}</select></div>
-                <div className="course-default-note">Veiledende standardverdier · Par {rounds.find((round) => round.id === courseRoundId)?.par ?? 72}</div>
+                <div className="field"><label htmlFor="course-round">Turneringsbane</label><select id="course-round" value={courseRoundId} onChange={(event) => { setCourseRoundId(Number(event.target.value)); setParsedTees([]); }}><option value="" disabled>Velg bane</option>{tournamentRounds.map((round) => <option key={round.id} value={round.id}>Runde {round.id} · {round.course}</option>)}</select></div>
+                <div className="course-default-note">Veiledende standardverdier · Par {tournamentRounds.find((round) => round.id === courseRoundId)?.par ?? 72}</div>
               </div>
               <form className="form-row add-tee-form" onSubmit={handleAddTee}>
-                <div className="field"><label htmlFor="new-tee-name">Nytt tee-sted</label><input id="new-tee-name" value={newTeeName} onChange={(event) => setNewTeeName(event.target.value)} placeholder="F.eks. Gull · 5 800 m" /></div>
-                <button className="primary-button" type="submit"><Plus size={14} /> Legg til tee</button>
+                {adminUnlocked ? <>
+                  <div className="field"><label htmlFor="new-tee-name">Nytt tee-sted</label><input id="new-tee-name" value={newTeeName} onChange={(event) => setNewTeeName(event.target.value)} placeholder="F.eks. Gull · 5 800 m" /></div>
+                  <button className="primary-button" type="submit"><Plus size={14} /> Legg til tee</button>
+                </> : <div className="admin-locked-note"><Lock size={13} /> Lås opp Admin for å legge til, redigere eller slette tee-steder.</div>}
               </form>
               <div className="tee-list">
                 {getCourseSetup(data.courses, courseRoundId).tees.map((tee) => (
-                  <TeeEditor key={tee.id} tee={tee} onSave={(updatedTee) => handleUpdateTee(courseRoundId, updatedTee)} onDelete={() => handleDeleteTee(courseRoundId, tee.id)} />
+                  <TeeEditor
+                    key={tee.id}
+                    tee={tee}
+                    admin={adminUnlocked}
+                    editing={editingTeeId === tee.id}
+                    onEdit={() => setEditingTeeId(tee.id)}
+                    onCancel={() => setEditingTeeId("")}
+                    onSave={(updatedTee) => { handleUpdateTee(courseRoundId, updatedTee); setEditingTeeId(""); }}
+                    onDelete={() => handleDeleteTee(courseRoundId, tee.id)}
+                  />
                 ))}
                 {!getCourseSetup(data.courses, courseRoundId).tees.length && <div className="empty-state">Ingen tee-steder for banen. Legg til tee manuelt eller lim inn baneinformasjon nedenfor.</div>}
               </div>
@@ -804,7 +1255,7 @@ export default function Home() {
 
             <section className="content-panel paste-course-panel">
               <div className="content-panel-header"><div><h3>Lim inn fra tekst</h3><p>Én tee per linje. Støtter for eksempel «Hvit · Par 72 · CR 73,1 · Slope 132» eller kolonner: Hvit 72 73.1 132.</p></div><ClipboardList size={17} color="#f15a24" /></div>
-              <div className="paste-course-content">
+              {adminUnlocked ? <div className="paste-course-content">
                 <textarea className="course-paste-input" value={pasteCourseText} onChange={(event) => { setPasteCourseText(event.target.value); setParsedTees([]); }} placeholder={"Hvit | Par 72 | CR 73,1 | Slope 132\nGul | Par 72 | CR 71,8 | Slope 126"} rows={5} />
                 <button className="secondary-button" type="button" onClick={handleParseCourseText}>Les baneinfo</button>
                 {parsedTees.length > 0 && (
@@ -814,7 +1265,7 @@ export default function Home() {
                     <button className="primary-button" type="button" onClick={handleImportParsedTees}>Importer tee-oppsett</button>
                   </div>
                 )}
-              </div>
+              </div> : <div className="admin-locked-note"><Lock size={13} /> Lås opp Admin for å importere eller endre tee-oppsettet.</div>}
             </section>
           </section>
         )}
@@ -830,17 +1281,20 @@ function StatCard({ label, value, note, icon }: { label: string; value: string; 
   return <div className="stat-card"><div className="stat-top"><span>{label}</span><span className="stat-icon">{icon}</span></div><strong className="stat-value">{value}</strong><div className="stat-note">{note}</div></div>;
 }
 
-function RoundRow({ round, scores, active, onSelect }: { round: Round; scores: Score[]; active: boolean; onSelect: () => void }) {
+function RoundRow({ round, scores, active, admin, onEdit, onSelect }: { round: Round; scores: Score[]; active: boolean; admin: boolean; onEdit: () => void; onSelect: () => void }) {
   const status = getRoundStatus(round);
   const hasScores = scores.some((score) => score.roundId === round.id);
   const Icon = isTeamFormat(round.format) ? Users : UserRound;
   return (
-    <button className={`round-row${active ? " active-row" : ""}`} onClick={onSelect} style={{ width: "100%", textAlign: "left", background: "none", border: 0 }}>
-      <span className="round-number">{String(round.id).padStart(2, "0")}</span>
-      <span><span className="round-name">{round.course}</span><span className="round-meta"><span>{formatPeriod(round)}</span><span className="format-tag"><Icon size={11} /> {round.format}</span>{hasScores && <span style={{ color: "#f15a24" }}>· Scorekort registrert</span>}</span></span>
-      <span className={`status ${status}`}>{getStatusLabel(status)}</span>
-      <span className="round-arrow"><ArrowRight size={13} /></span>
-    </button>
+    <div className="round-row-with-actions">
+      <button className={`round-row${active ? " active-row" : ""}`} onClick={onSelect} style={{ width: "100%", textAlign: "left", background: "none", border: 0 }}>
+        <span className="round-number">{String(round.id).padStart(2, "0")}</span>
+        <span><span className="round-name">{round.course}</span><span className="round-meta"><span>{formatPeriod(round)}</span><span className="format-tag"><Icon size={11} /> {round.format}</span>{hasScores && <span style={{ color: "#f15a24" }}>· Scorekort registrert</span>}</span></span>
+        <span className={`status ${status}`}>{getStatusLabel(status)}</span>
+        <span className="round-arrow"><ArrowRight size={13} /></span>
+      </button>
+      {admin && <button className="icon-button" type="button" aria-label={`Rediger runde ${round.id}`} onClick={onEdit}><Pencil size={14} /></button>}
+    </div>
   );
 }
 
@@ -848,17 +1302,90 @@ function SectionHeading({ eyebrow, title, description }: { eyebrow: string; titl
   return <div className="section-heading"><div><div className="eyebrow">{eyebrow}</div><h2>{title}</h2><p>{description}</p></div></div>;
 }
 
-function TeamCard({ team, players }: { team: Team; players: Player[] }) {
+function TeamCard({ team, players, admin, onEdit, onDelete }: { team: Team; players: Player[]; admin: boolean; onEdit: () => void; onDelete: () => void }) {
   const names = team.playerIds.map((id) => players.find((player) => player.id === id)?.name ?? "Spiller");
-  return <div className="team-item"><span className="team-icon"><Users size={15} /></span><span><span className="team-name">{team.name}</span><span className="team-players">{names.join(" & ")}</span></span></div>;
+  return <div className="team-item"><span className="team-icon"><Users size={15} /></span><span className="team-item-main"><span className="team-name">{team.name}</span><span className="team-players">{names.join(" & ")}</span></span>{admin && <div className="entry-actions"><button className="text-action" type="button" onClick={onEdit}><Pencil size={13} /> Rediger</button><button className="text-action danger-text" type="button" onClick={onDelete}><Trash2 size={13} /> Slett</button></div>}</div>;
 }
 
-function TeeEditor({ tee, onSave, onDelete }: { tee: Tee; onSave: (tee: Tee) => void; onDelete: () => void }) {
+function TeamEditor({ team, players, rounds, teams, onSave, onCancel }: { team: Team; players: Player[]; rounds: Round[]; teams: Team[]; onSave: (team: Team) => boolean; onCancel: () => void }) {
+  const [name, setName] = useState(team.name);
+  const [roundId, setRoundId] = useState(String(team.roundId));
+  const [playerOne, setPlayerOne] = useState(team.playerIds[0]);
+  const [playerTwo, setPlayerTwo] = useState(team.playerIds[1]);
+  const [error, setError] = useState("");
+  const parsedRoundId = Number(roundId);
+  const takenPlayerIds = teams.filter((item) => item.id !== team.id && item.roundId === parsedRoundId).flatMap((item) => item.playerIds);
+
+  useEffect(() => {
+    setName(team.name);
+    setRoundId(String(team.roundId));
+    setPlayerOne(team.playerIds[0]);
+    setPlayerTwo(team.playerIds[1]);
+    setError("");
+  }, [team]);
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const saved = onSave({ ...team, name: name.trim(), roundId: parsedRoundId, playerIds: [playerOne, playerTwo] });
+    if (!saved) setError("Kontroller lagnavn, runde og spillerkombinasjon.");
+  }
+
+  return (
+    <form className="team-edit-form" onSubmit={submit}>
+      <div className="field"><label htmlFor={`team-edit-name-${team.id}`}>Lagnavn</label><input id={`team-edit-name-${team.id}`} value={name} onChange={(event) => setName(event.target.value)} required /></div>
+      <div className="field"><label htmlFor={`team-edit-round-${team.id}`}>Lagårunde</label><select id={`team-edit-round-${team.id}`} value={roundId} onChange={(event) => setRoundId(event.target.value)}>{rounds.filter((round) => isTeamFormat(round.format)).map((round) => <option key={round.id} value={round.id}>Runde {round.id} · {round.course}</option>)}</select></div>
+      <div className="field"><label htmlFor={`team-edit-one-${team.id}`}>Spiller 1</label><select id={`team-edit-one-${team.id}`} value={playerOne} onChange={(event) => setPlayerOne(event.target.value)}>{players.filter((player) => player.id === playerTwo || !takenPlayerIds.includes(player.id)).map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}</select></div>
+      <div className="field"><label htmlFor={`team-edit-two-${team.id}`}>Spiller 2</label><select id={`team-edit-two-${team.id}`} value={playerTwo} onChange={(event) => setPlayerTwo(event.target.value)}>{players.filter((player) => player.id === playerOne || !takenPlayerIds.includes(player.id)).map((player) => <option key={player.id} value={player.id}>{player.name}</option>)}</select></div>
+      {error && <span className="form-error">{error}</span>}
+      <div className="admin-edit-actions"><button className="secondary-button" type="submit"><Save size={13} /> Lagre lag</button><button className="text-action" type="button" onClick={onCancel}>Avbryt</button></div>
+    </form>
+  );
+}
+
+function RoundEditor({ round, onSave, onCancel }: { round: Round; onSave: (round: Round) => void; onCancel: () => void }) {
+  const [course, setCourse] = useState(round.course);
+  const [startDate, setStartDate] = useState(round.startDate);
+  const [endDate, setEndDate] = useState(round.endDate);
+  const [format, setFormat] = useState<RoundFormat>(round.format);
+  const [location, setLocation] = useState(round.location);
+
+  useEffect(() => {
+    setCourse(round.course);
+    setStartDate(round.startDate);
+    setEndDate(round.endDate);
+    setFormat(round.format);
+    setLocation(round.location);
+  }, [round]);
+
+  function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSave({ ...round, course, startDate, endDate, format, location });
+  }
+
+  return <form className="round-edit-form" onSubmit={submit}>
+    <div className="field"><label htmlFor={`round-course-${round.id}`}>Banenavn</label><input id={`round-course-${round.id}`} value={course} onChange={(event) => setCourse(event.target.value)} required /></div>
+    <div className="field"><label htmlFor={`round-start-${round.id}`}>Fra dato</label><input id={`round-start-${round.id}`} type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required /></div>
+    <div className="field"><label htmlFor={`round-end-${round.id}`}>Til dato</label><input id={`round-end-${round.id}`} type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} required /></div>
+    <div className="field"><label htmlFor={`round-format-${round.id}`}>Spilleformat</label><select id={`round-format-${round.id}`} value={format} onChange={(event) => { if (isRoundFormat(event.target.value)) setFormat(event.target.value); }}>{ROUND_FORMATS.map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
+    <div className="field"><label htmlFor={`round-location-${round.id}`}>Sted</label><input id={`round-location-${round.id}`} value={location} onChange={(event) => setLocation(event.target.value)} /></div>
+    <div className="admin-edit-actions"><button className="secondary-button" type="submit"><Save size={13} /> Lagre runde</button><button className="text-action" type="button" onClick={onCancel}>Avbryt</button></div>
+  </form>;
+}
+
+function TeeEditor({ tee, admin, editing, onEdit, onCancel, onSave, onDelete }: { tee: Tee; admin: boolean; editing: boolean; onEdit: () => void; onCancel: () => void; onSave: (tee: Tee) => void; onDelete: () => void }) {
   const [name, setName] = useState(tee.name);
   const [par, setPar] = useState(String(tee.par));
   const [courseRating, setCourseRating] = useState(String(tee.courseRating));
   const [slopeRating, setSlopeRating] = useState(String(tee.slopeRating));
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    setName(tee.name);
+    setPar(String(tee.par));
+    setCourseRating(String(tee.courseRating));
+    setSlopeRating(String(tee.slopeRating));
+    setError("");
+  }, [tee]);
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -875,13 +1402,20 @@ function TeeEditor({ tee, onSave, onDelete }: { tee: Tee; onSave: (tee: Tee) => 
     onSave({ id: tee.id, name: name.trim(), par: parsedPar, courseRating: Math.round(parsedRating * 10) / 10, slopeRating: parsedSlope });
   }
 
+  if (!editing) {
+    return <article className="tee-display">
+      <div className="tee-display-values"><strong>{tee.name}</strong><span>Par {tee.par}</span><span>CR {tee.courseRating.toFixed(1)}</span><span>Slope {tee.slopeRating}</span></div>
+      {admin && <div className="entry-actions"><button className="text-action" type="button" onClick={onEdit}><Pencil size={13} /> Rediger</button><button className="text-action danger-text" type="button" onClick={onDelete}><Trash2 size={13} /> Slett</button></div>}
+    </article>;
+  }
+
   return (
     <form className="tee-editor" onSubmit={submit}>
       <div className="field"><label htmlFor={`tee-name-${tee.id}`}>Tee-navn</label><input id={`tee-name-${tee.id}`} value={name} onChange={(event) => setName(event.target.value)} required /></div>
       <div className="field"><label htmlFor={`tee-par-${tee.id}`}>Par</label><input id={`tee-par-${tee.id}`} type="number" min="54" max="90" value={par} onChange={(event) => setPar(event.target.value)} required /></div>
       <div className="field"><label htmlFor={`tee-cr-${tee.id}`}>Course Rating</label><input id={`tee-cr-${tee.id}`} type="number" min="50" max="100" step="0.1" value={courseRating} onChange={(event) => setCourseRating(event.target.value)} required /></div>
       <div className="field"><label htmlFor={`tee-slope-${tee.id}`}>Slope Rating</label><input id={`tee-slope-${tee.id}`} type="number" min="55" max="155" step="1" value={slopeRating} onChange={(event) => setSlopeRating(event.target.value)} required /></div>
-      <div className="tee-editor-actions"><button className="secondary-button" type="submit">Lagre tee</button><button className="icon-button danger" type="button" aria-label={`Slett ${tee.name}`} onClick={onDelete}><Trash2 size={15} /></button></div>
+      <div className="tee-editor-actions"><button className="secondary-button" type="submit"><Save size={13} /> Lagre tee</button><button className="text-action" type="button" onClick={onCancel}>Avbryt</button></div>
       {error && <span className="form-error">{error}</span>}
     </form>
   );
@@ -890,17 +1424,19 @@ function TeeEditor({ tee, onSave, onDelete }: { tee: Tee; onSave: (tee: Tee) => 
 function ScoreResults({
   results,
   players,
+  admin,
   onEdit,
   onDelete,
 }: {
   results: ResultRow[];
   players: Player[];
+  admin: boolean;
   onEdit?: (score: Score) => void;
   onDelete?: (score: Score) => void;
 }) {
-  return <div className="score-table-wrap"><table className="score-table"><thead><tr><th>Plass</th><th>Spiller / lag</th><th>Tee</th><th>Brutto</th><th>Spille-HCP</th><th>Netto</th><th>Poeng</th>{(onEdit || onDelete) && <th>Handling</th>}</tr></thead><tbody>{results.map((result, index) => (
+  return <div className="score-table-wrap"><table className="score-table"><thead><tr><th>Plass</th><th>Spiller / lag</th><th>Tee</th><th>Brutto</th><th>Spille-HCP</th><th>Netto</th><th>Poeng</th>{admin && <th>Handling</th>}</tr></thead><tbody>{results.map((result, index) => (
     <tr key={result.entryId}><td className={`table-rank${index === 0 ? " trophy-rank" : ""}`}>{String(index + 1).padStart(2, "0")}</td><td>{result.label}{result.playerIds.length === 2 && <div style={{ color: "#72777c", fontSize: 9, marginTop: 4 }}>{result.playerIds.map((id) => players.find((player) => player.id === id)?.name ?? "Spiller").join(" & ")}</div>}</td><td className="result-label">{result.teeName}</td><td>{result.strokes}</td><td className="result-label">{formatScore(result.playingHandicap)}</td><td className="score-value">{formatScore(result.netStrokes)}<span className="score-par">{result.netStrokes - result.teePar === 0 ? "E" : result.netStrokes - result.teePar > 0 ? `+${formatScore(result.netStrokes - result.teePar)}` : formatScore(result.netStrokes - result.teePar)}</span></td><td className="points-cell">{Number.isInteger(result.points) ? result.points : result.points.toFixed(1)}</td>
-      {(onEdit || onDelete) && <td><div className="score-actions"><button className="text-action" type="button" onClick={() => onEdit?.(result.score)}>Rediger</button><button className="text-action danger-text" type="button" onClick={() => onDelete?.(result.score)}>Slett</button></div></td>}
+      {admin && <td><div className="score-actions"><button className="text-action" type="button" onClick={() => onEdit?.(result.score)}><Pencil size={13} /> Rediger</button><button className="text-action danger-text" type="button" onClick={() => onDelete?.(result.score)}><Trash2 size={13} /> Slett</button></div></td>}
     </tr>
   ))}</tbody></table></div>;
 }

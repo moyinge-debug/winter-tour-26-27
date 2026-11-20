@@ -38,8 +38,10 @@ export function getTournamentHandicap(
   data: TournamentData,
 ): number {
   let handicap = roundToOneDecimal(player.handicap);
-  for (const round of rounds) {
+  const tournamentRounds = data.rounds ?? rounds;
+  for (const round of tournamentRounds) {
     if (round.id >= roundId) break;
+    handicap = roundToOneDecimal(player.handicapOverrides?.[String(round.id)] ?? handicap);
     const score = getPlayerScore(player.id, round.id, data.teams, data.scores);
     if (!score) continue;
     const tee = getTee(data.courses, round.id, score.teeId);
@@ -48,18 +50,19 @@ export function getTournamentHandicap(
     const adjustment = roundToOneDecimal((score.strokes - playingHandicap - tee.par) / 2);
     handicap = roundToOneDecimal(handicap + adjustment);
   }
-  return handicap;
+  return roundToOneDecimal(player.handicapOverrides?.[String(roundId)] ?? handicap);
 }
 
 export function getTournamentHandicapSnapshot(players: Player[], data: TournamentData): Record<string, number> {
   return Object.fromEntries(players.flatMap((player) =>
-    rounds.map((round) => [`${player.id}:${round.id}`, getTournamentHandicap(player, round.id, data)]),
+    (data.rounds ?? rounds).map((round) => [`${player.id}:${round.id}`, getTournamentHandicap(player, round.id, data)]),
   ));
 }
 
 export function getHandicapHistory(player: Player, data: TournamentData) {
   let handicap = roundToOneDecimal(player.handicap);
-  return rounds.map((round) => {
+  return (data.rounds ?? rounds).map((round) => {
+    handicap = roundToOneDecimal(player.handicapOverrides?.[String(round.id)] ?? handicap);
     const roundHandicap = handicap;
     const score = getPlayerScore(player.id, round.id, data.teams, data.scores);
     const tee = score ? getTee(data.courses, round.id, score.teeId) : undefined;

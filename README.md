@@ -23,6 +23,12 @@ I lagrunder benytter lagresultatet gjennomsnittlig spillehandicap. Lagets brutto
 
 Score kan registreres manuelt eller foreslås fra et bilde med Tesseract.js OCR. OCR kan lese feil, så kontroller alltid tee, spiller og score før du lagrer. Tekstimport av tee-oppsett støtter linjer som `Hvit | Par 72 | CR 73,1 | Slope 132` eller `Hvit 72 73.1 132`.
 
+## Admin
+
+Admin åpnes fra hengelås-knappen med standard-PIN `2026`. PIN-koden kan endres i `ADMIN_PIN` i `app/page.tsx`. Opplåsing varer i fanens `sessionStorage`. Admin kan redigere/slette spillere, lag, score, runder og tee-steder, styre manuelle HCP-overstyringer og eksportere/importere JSON-sikkerhetskopier. Sletting krever bekreftelse; full nullstilling krever en ekstra bekreftelse.
+
+Admin-PIN er en klientbasert grensesnittlås for denne lokale appen, ikke serverbasert autentisering. PIN-koden finnes i klientkoden, og turneringsdata lagres lokalt i nettleseren. Ikke bruk dette som sikkerhetsgrense for sensitive data.
+
 ## Datamodell
 
 De sentrale typene (`Player`, `Round`, `Team`, `Score`) ligger i `lib/types.ts`. Turneringsprogram og startdata ligger i `lib/data.ts`, slik at lagring senere kan flyttes til for eksempel Supabase uten å endre domenemodellen.

@@ -19,6 +19,7 @@ export interface Player {
   id: string;
   name: string;
   handicap: number;
+  handicapOverrides?: Record<string, number>;
 }
 
 export interface Round {
@@ -52,5 +53,6 @@ export interface TournamentData {
   teams: Team[];
   scores: Score[];
   courses?: CourseSetup[];
+  rounds?: Round[];
   roundHandicaps?: Record<string, number>;
 }
