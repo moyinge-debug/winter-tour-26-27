@@ -1,6 +1,6 @@
 # Winter Tour 26/27
 
-Mobilvennlig turneringsapp for ni runder med spilleradministrasjon, lag, scorekort og Order of Merit.
+Mobilvennlig turneringsapp for ni runder med spilleradministrasjon, lag, scorekort og sammenlagt leaderboard.
 
 ## Kom i gang
 
@@ -9,11 +9,11 @@ npm install
 npm run dev
 ```
 
-Åpne [http://localhost:3000](http://localhost:3000). Appen starter med seks demospillere, eksempel-lag og resultater fra to runder. Endringer lagres i nettleserens `localStorage`.
+Åpne [http://localhost:3000](http://localhost:3000). Appen starter med de 14 oppgitte spillerne og start-HCP; oppmøte og endringer lagres i nettleserens `localStorage`. En engangsmigrering legger spillerne til eksisterende turneringsdata uten å overskrive eksisterende navn eller handicap.
 
-## Poeng
+## Sammenlagt leaderboard
 
-Runder rangeres på netto score (brutto slag minus spille-HCP), lavest først. I singelrunder brukes spillerens HCP; i lagrunder brukes gjennomsnittet av spillernes spillehandicap. Plassering gir 12, 10, 8, 6, 4 og 2 poeng; delte plasseringer deler poengene som ellers ville gått til plassene de opptar. Begge spillerne på et lag får lagets poeng i Order of Merit.
+Leaderboard summerer netto score (brutto slag minus spille-HCP) fra registrerte runder og rangerer laveste totalsum først. I singelrunder brukes spillerens spillehandicap; i lagrunder brukes gjennomsnittet av spillernes spillehandicap, og lagets netto score føres på begge spillerne.
 
 ## Handicap og tee-oppsett
 

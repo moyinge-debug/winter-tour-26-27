@@ -1,4 +1,21 @@
-import type { CourseSetup, Round } from "./types";
+import type { CourseSetup, Player, Round } from "./types";
+
+export const initialPlayers: Player[] = [
+  { id: "winter-tour-atle", name: "Atle", handicap: 13.8, attendance: "Ja" },
+  { id: "winter-tour-henrik-p", name: "Henrik P", handicap: 7.3, attendance: "Ja" },
+  { id: "winter-tour-inge", name: "Inge", handicap: 5.7, attendance: "Ja" },
+  { id: "winter-tour-jon-sverre", name: "Jon Sverre", handicap: 16.8, attendance: "Ja" },
+  { id: "winter-tour-kjetil", name: "Kjetil", handicap: 22.3, attendance: "Nei" },
+  { id: "winter-tour-kristian", name: "Kristian", handicap: 10.9, attendance: "Ja" },
+  { id: "winter-tour-lars", name: "Lars", handicap: 21.7, attendance: "Ja" },
+  { id: "winter-tour-mads-o", name: "Mads O", handicap: 25.9, attendance: "Ja" },
+  { id: "winter-tour-mathias", name: "Mathias", handicap: 10.6, attendance: "Ja" },
+  { id: "winter-tour-morgan", name: "Morgan", handicap: 15.6, attendance: "Ja" },
+  { id: "winter-tour-morten", name: "Morten", handicap: 20.5, attendance: "Ja" },
+  { id: "winter-tour-nikko", name: "Nikko", handicap: 12.6, attendance: "Ja" },
+  { id: "winter-tour-peder", name: "Peder", handicap: 21.3, attendance: "Kanskje" },
+  { id: "winter-tour-orjan", name: "Ørjan", handicap: 20.0, attendance: "Ja" },
+];
 
 export const rounds: Round[] = [
   { id: 1, course: "Black Desert", format: "Single", startDate: "2026-11-22", endDate: "2026-12-05", location: "Ivins, Utah", par: 72 },

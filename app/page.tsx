@@ -26,9 +26,9 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { defaultCourses, formatPeriod, getRoundStatus, isTeamFormat, rounds } from "@/lib/data";
+import { defaultCourses, formatPeriod, getRoundStatus, initialPlayers, isTeamFormat, rounds } from "@/lib/data";
 import { getCourseSetup, getHandicapHistory, getPlayingHandicap, getTournamentHandicap, getTournamentHandicapSnapshot, getTee } from "@/lib/handicap";
-import type { CourseSetup, Player, Round, RoundFormat, Score, Team, Tee, TournamentData, View } from "@/lib/types";
+import type { AttendanceStatus, CourseSetup, Player, Round, RoundFormat, Score, Team, Tee, TournamentData, View } from "@/lib/types";
 
 const STORAGE_KEY = "winter-tour-26-27";
 const ADMIN_SESSION_KEY = "winter-tour-26-27-admin";
@@ -36,7 +36,8 @@ const ADMIN_PIN = "2026";
 const DEMO_PLAYER_IDS = new Set(["p1", "p2", "p3", "p4", "p5", "p6"]);
 const DEMO_TEAM_IDS = new Set(["t2a", "t2b", "t2c", "t4a", "t4b", "t4c", "t6a", "t6b", "t6c", "t8a", "t8b", "t8c"]);
 const DEMO_SCORE_IDS = new Set(["s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9"]);
-const POINTS_BY_PLACE = [12, 10, 8, 6, 4, 2];
+const PLAYER_ROSTER_VERSION = 1;
+const ATTENDANCE_STATUSES: AttendanceStatus[] = ["Ja", "Nei", "Kanskje"];
 const ROUND_FORMATS: RoundFormat[] = ["Single", "Greensome", "Scramble", "Best ball", "Foursome"];
 const NAV_ITEMS: { id: View; label: string; icon: typeof Flag }[] = [
   { id: "overview", label: "Oversikt", icon: Flag },
@@ -53,7 +54,6 @@ type ResultRow = {
   strokes: number;
   playingHandicap: number;
   netStrokes: number;
-  points: number;
   teeName: string;
   teePar: number;
   score: Score;
@@ -125,7 +125,6 @@ function scoreEntries(roundId: number, data: TournamentData): ResultRow[] {
         strokes: score.strokes,
         playingHandicap,
         netStrokes: Math.round((score.strokes - playingHandicap) * 100) / 100,
-        points: 0,
         teeName: scoreTee?.name ?? "—",
         teePar: scoreTee?.par ?? round.par,
         score,
@@ -143,37 +142,52 @@ function scoreEntries(roundId: number, data: TournamentData): ResultRow[] {
       strokes: score.strokes,
       playingHandicap,
       netStrokes: Math.round((score.strokes - playingHandicap) * 100) / 100,
-      points: 0,
       teeName: scoreTee?.name ?? "—",
       teePar: scoreTee?.par ?? round.par,
       score,
     };
   }).filter((entry): entry is ResultRow => entry !== null).sort((a, b) => a.netStrokes - b.netStrokes);
 
-  let place = 0;
-  for (let index = 0; index < entries.length;) {
-    let end = index + 1;
-    while (end < entries.length && entries[end].netStrokes === entries[index].netStrokes) end++;
-    const averagePoints = Array.from({ length: end - index }, (_, offset) => POINTS_BY_PLACE[place + offset] ?? 0)
-      .reduce((sum, point) => sum + point, 0) / (end - index);
-    for (let tied = index; tied < end; tied++) entries[tied].points = averagePoints;
-    place += end - index;
-    index = end;
-  }
   return entries;
 }
 
-function getOom(data: TournamentData) {
-  const totals = new Map(data.players.map((player) => [player.id, 0]));
+function getLeaderboard(data: TournamentData) {
+  const totals = new Map(data.players.map((player) => [player.id, {
+    netScore: 0,
+    roundsPlayed: 0,
+    grossScore: 0,
+    singleRoundsPlayed: 0,
+  }]));
   for (const round of data.rounds ?? rounds) {
     for (const result of scoreEntries(round.id, data)) {
       for (const playerId of result.playerIds) {
-        totals.set(playerId, (totals.get(playerId) ?? 0) + result.points);
+        const total = totals.get(playerId);
+        if (total) {
+          total.netScore += result.netStrokes;
+          total.roundsPlayed++;
+          if (round.format === "Single" && result.playerIds.length === 1) {
+            total.grossScore += result.strokes;
+            total.singleRoundsPlayed++;
+          }
+        }
       }
     }
   }
-  return data.players.map((player) => ({ player, points: totals.get(player.id) ?? 0 }))
-    .sort((a, b) => b.points - a.points || a.player.name.localeCompare(b.player.name, "nb"));
+  return data.players.map((player) => {
+    const total = totals.get(player.id);
+    return {
+      player,
+      netScore: total?.netScore ?? 0,
+      roundsPlayed: total?.roundsPlayed ?? 0,
+      averageGrossScore: total && total.singleRoundsPlayed > 0
+        ? total.grossScore / total.singleRoundsPlayed
+        : undefined,
+    };
+  }).sort((a, b) =>
+    Number(b.roundsPlayed > 0) - Number(a.roundsPlayed > 0)
+    || a.netScore - b.netScore
+    || a.player.name.localeCompare(b.player.name, "nb"),
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -184,6 +198,10 @@ function isRoundFormat(value: string): value is RoundFormat {
   return ROUND_FORMATS.some((format) => format === value);
 }
 
+function isAttendanceStatus(value: unknown): value is AttendanceStatus {
+  return typeof value === "string" && ATTENDANCE_STATUSES.some((status) => status === value);
+}
+
 function isValidPlayer(value: unknown): value is Player {
   return isRecord(value)
     && typeof value.id === "string"
@@ -192,6 +210,7 @@ function isValidPlayer(value: unknown): value is Player {
     && Number.isFinite(value.handicap)
     && value.handicap >= 0
     && value.handicap <= 54
+    && (value.attendance === undefined || isAttendanceStatus(value.attendance))
     && (value.handicapOverrides === undefined || (isRecord(value.handicapOverrides)
       && Object.values(value.handicapOverrides).every((handicap) =>
         typeof handicap === "number" && Number.isFinite(handicap) && handicap >= 0 && handicap <= 54,
@@ -256,6 +275,8 @@ function isValidRound(value: unknown): value is Round {
 
 function isValidData(value: unknown): value is TournamentData {
   if (!isRecord(value) || !Array.isArray(value.players) || !Array.isArray(value.teams) || !Array.isArray(value.scores)) return false;
+  if (value.playerRosterVersion !== undefined
+    && (typeof value.playerRosterVersion !== "number" || !Number.isInteger(value.playerRosterVersion) || value.playerRosterVersion < 0)) return false;
   const optionalCoursesValid = value.courses === undefined || (Array.isArray(value.courses) && value.courses.every((course) =>
     isRecord(course) && typeof course.roundId === "number" && Array.isArray(course.tees) && course.tees.every(isValidTee),
   ));
@@ -266,6 +287,28 @@ function isValidData(value: unknown): value is TournamentData {
     && value.scores.every(isValidScore)
     && optionalCoursesValid
     && optionalRoundsValid;
+}
+
+function addInitialPlayers(data: TournamentData): TournamentData {
+  if ((data.playerRosterVersion ?? 0) >= PLAYER_ROSTER_VERSION) return data;
+
+  const players = [...data.players];
+  for (const initialPlayer of initialPlayers) {
+    const existingIndex = players.findIndex((player) =>
+      player.id === initialPlayer.id
+      || player.name.toLocaleLowerCase("nb") === initialPlayer.name.toLocaleLowerCase("nb"),
+    );
+    if (existingIndex !== -1) {
+      const existing = players[existingIndex];
+      if (existing.attendance === undefined) {
+        players[existingIndex] = { ...existing, attendance: initialPlayer.attendance };
+      }
+      continue;
+    }
+    players.push(initialPlayer);
+  }
+
+  return { ...data, players, playerRosterVersion: PLAYER_ROSTER_VERSION };
 }
 
 function removeDemoData(data: TournamentData): TournamentData {
@@ -279,6 +322,7 @@ function removeDemoData(data: TournamentData): TournamentData {
     teams,
     courses: data.courses?.length ? data.courses : defaultCourses,
     rounds: data.rounds?.length ? data.rounds : rounds,
+    playerRosterVersion: data.playerRosterVersion,
     scores: data.scores.filter((score) =>
       !DEMO_SCORE_IDS.has(score.id)
       && !DEMO_PLAYER_IDS.has(score.entryId)
@@ -303,7 +347,7 @@ export default function Home() {
   const [toast, setToast] = useState("");
   const [selectedRoundId, setSelectedRoundId] = useState(2);
   const [leaderboardRoundId, setLeaderboardRoundId] = useState(1);
-  const [leaderboardMode, setLeaderboardMode] = useState<"oom" | "round">("oom");
+  const [leaderboardMode, setLeaderboardMode] = useState<"overall" | "round">("overall");
   const [playerName, setPlayerName] = useState("");
   const [handicap, setHandicap] = useState("");
   const [teamName, setTeamName] = useState("");
@@ -320,6 +364,7 @@ export default function Home() {
   const [pasteCourseText, setPasteCourseText] = useState("");
   const [parsedTees, setParsedTees] = useState<Omit<Tee, "id">[]>([]);
   const scoreImageInput = useRef<HTMLInputElement>(null);
+  const scoreImageUploadInput = useRef<HTMLInputElement>(null);
   const backupInput = useRef<HTMLInputElement>(null);
   const [adminUnlocked, setAdminUnlocked] = useState(false);
   const [showPinPrompt, setShowPinPrompt] = useState(false);
@@ -328,6 +373,7 @@ export default function Home() {
   const [editingPlayerId, setEditingPlayerId] = useState("");
   const [playerNameDraft, setPlayerNameDraft] = useState("");
   const [playerHandicapDraft, setPlayerHandicapDraft] = useState("");
+  const [playerAttendanceDraft, setPlayerAttendanceDraft] = useState<AttendanceStatus>("Ja");
   const [overrideRoundId, setOverrideRoundId] = useState("1");
   const [overrideHandicapDraft, setOverrideHandicapDraft] = useState("");
   const [editingTeamId, setEditingTeamId] = useState("");
@@ -340,13 +386,22 @@ export default function Home() {
       if (saved) {
         const parsed: unknown = JSON.parse(saved);
         if (isValidData(parsed)) {
-          const cleaned = removeDemoData(parsed);
+          const cleaned = addInitialPlayers(removeDemoData(parsed));
           const savedCourses = cleaned.courses ?? [];
           const courses = defaultCourses.map((defaultCourse) =>
             savedCourses.find((course) => course.roundId === defaultCourse.roundId) ?? defaultCourse,
           );
           setData({ ...cleaned, courses, rounds: cleaned.rounds?.length ? cleaned.rounds : rounds });
         }
+      } else {
+        setData({
+          players: initialPlayers,
+          teams: [],
+          scores: [],
+          playerRosterVersion: PLAYER_ROSTER_VERSION,
+          courses: defaultCourses,
+          rounds,
+        });
       }
     } catch (error) {
       console.error("Could not load tournament data from localStorage.", error);
@@ -414,18 +469,9 @@ export default function Home() {
   const liveNextHandicaps = selectedPlayerHandicaps.map((handicap, index) =>
     Math.round((handicap + (liveAdjustments[index] ?? 0)) * 10) / 10,
   );
-  const livePoints = validLiveScore && selectedTee && entryId
-    ? scoreEntries(selectedRoundId, {
-      ...data,
-      scores: [
-        ...data.scores.filter((score) => !(score.roundId === selectedRoundId && score.entryId === entryId)),
-        { id: editingScoreId || "preview", roundId: selectedRoundId, entryId, strokes: numericScore, teeId: selectedTee.id, updatedAt: "" },
-      ],
-    }).find((result) => result.entryId === entryId)?.points
-    : undefined;
   const results = useMemo(() => scoreEntries(selectedRoundId, data), [selectedRoundId, data]);
   const leaderboardResults = useMemo(() => scoreEntries(leaderboardRoundId, data), [leaderboardRoundId, data]);
-  const oom = useMemo(() => getOom(data), [data]);
+  const overallLeaderboard = useMemo(() => getLeaderboard(data), [data]);
   const activeRound = tournamentRounds.find((round) => getRoundStatus(round) === "active");
   const nextRound = activeRound ?? tournamentRounds.find((round) => getRoundStatus(round) === "upcoming") ?? tournamentRounds[0];
   const finishedCount = tournamentRounds.filter((round) => getRoundStatus(round) === "completed").length;
@@ -509,7 +555,7 @@ export default function Home() {
       showToast("En spiller med dette navnet finnes allerede.");
       return;
     }
-    const player = { id: crypto.randomUUID(), name: normalizedName, handicap: Math.round(parsedHandicap * 10) / 10 };
+    const player = { id: crypto.randomUUID(), name: normalizedName, handicap: Math.round(parsedHandicap * 10) / 10, attendance: "Ja" as const };
     setData((current) => ({ ...current, players: [...current.players, player] }));
     setPlayerName("");
     setHandicap("");
@@ -520,6 +566,7 @@ export default function Home() {
     setEditingPlayerId(player.id);
     setPlayerNameDraft(player.name);
     setPlayerHandicapDraft(player.handicap.toFixed(1));
+    setPlayerAttendanceDraft(player.attendance ?? "Ja");
     setOverrideRoundId(String(nextRound.id));
     setOverrideHandicapDraft(player.handicapOverrides?.[String(nextRound.id)]?.toFixed(1) ?? "");
   }
@@ -547,7 +594,7 @@ export default function Home() {
     setData((current) => ({
       ...current,
       players: current.players.map((item) => item.id === player.id
-        ? { ...item, name, handicap: Math.round(startHandicap * 10) / 10, handicapOverrides }
+        ? { ...item, name, handicap: Math.round(startHandicap * 10) / 10, attendance: playerAttendanceDraft, handicapOverrides }
         : item),
     }));
     setEditingPlayerId("");
@@ -900,10 +947,11 @@ export default function Home() {
         return;
       }
       if (!window.confirm("Er du sikker på at du vil importere denne sikkerhetskopien? Nåværende data blir erstattet.")) return;
+      const imported = addInitialPlayers(candidate);
       setData({
-        ...candidate,
-        courses: getCourseSetups(candidate.courses),
-        rounds: candidate.rounds?.length ? candidate.rounds : rounds,
+        ...imported,
+        courses: getCourseSetups(imported.courses),
+        rounds: imported.rounds?.length ? imported.rounds : rounds,
       });
       setEditingPlayerId("");
       setEditingTeamId("");
@@ -1011,17 +1059,17 @@ export default function Home() {
               <div><div className="panel-title">Leaderboard</div><div className="panel-kicker">Sammenlagt · alle runder</div></div>
               <button className="subtle-link" onClick={() => changeView("leaderboard")}>Se alle <ArrowRight size={15} /></button>
             </div>
-            {oom.length === 0 || oom.every((entry) => entry.points === 0) ? (
-              <div className="leader-empty">Sesongens første poeng venter.<br />Registrer et resultat for å komme i gang.</div>
-            ) : oom.slice(0, 5).map(({ player, points }, index) => (
+            {data.scores.length === 0 ? (
+              <div className="leader-empty">Sesongens første score venter.<br />Registrer et resultat for å komme i gang.</div>
+            ) : overallLeaderboard.slice(0, 5).map(({ player, netScore, roundsPlayed }, index) => (
               <div className="leader-row" key={player.id}>
-                <span className={`rank-number${index === 0 ? " gold" : ""}`}>{String(index + 1).padStart(2, "0")}</span>
+                <span className={`rank-number${index === 0 && roundsPlayed > 0 ? " gold" : ""}`}>{String(index + 1).padStart(2, "0")}</span>
                 <PlayerAvatar name={player.name} dark />
                 <div className="leader-info"><div className="leader-name">{player.name}</div><div className="leader-sub">Start {player.handicap.toFixed(1)} · Nå {getTournamentHandicap(player, nextRound.id, data).toFixed(1)}</div></div>
-                <div className="leader-points">{points}<small>POENG</small></div>
+                <div className="leader-total">{roundsPlayed ? formatScore(netScore) : "—"}<small>NETTO</small></div>
               </div>
             ))}
-            <div className="note"><CircleHelp size={12} /> Lagpoeng føres på begge spillere i laget.</div>
+            <div className="note"><CircleHelp size={12} /> Lagets netto score føres på begge spillerne.</div>
           </section>
         )}
 
@@ -1070,7 +1118,7 @@ export default function Home() {
                       <PlayerAvatar name={player.name} dark />
                       <div className="player-card-main">
                         <div className="player-card-name">{player.name}</div>
-                        <div className="player-card-meta">Start-HCP {player.handicap.toFixed(1)} · Turnerings-HCP {currentHandicap.toFixed(1)}</div>
+                        <div className="player-card-meta">Med {player.attendance ?? "Ja"} · Start-HCP {player.handicap.toFixed(1)} · Turnerings-HCP {currentHandicap.toFixed(1)}</div>
                         {adminUnlocked && <div className="entry-actions">
                           <button className="text-action" type="button" onClick={() => startEditingPlayer(player)}><Pencil size={13} /> Rediger</button>
                           <button className="text-action danger-text" type="button" onClick={() => handleDeletePlayer(player)}><Trash2 size={13} /> Slett</button>
@@ -1078,6 +1126,7 @@ export default function Home() {
                         {adminUnlocked && editingPlayerId === player.id && <form className="admin-edit-form" onSubmit={(event) => handleSavePlayer(event, player)}>
                           <div className="field"><label htmlFor={`edit-player-name-${player.id}`}>Spillernavn</label><input id={`edit-player-name-${player.id}`} value={playerNameDraft} onChange={(event) => setPlayerNameDraft(event.target.value)} required /></div>
                           <div className="field"><label htmlFor={`edit-player-hcp-${player.id}`}>Start-HCP</label><input id={`edit-player-hcp-${player.id}`} type="number" min="0" max="54" step="0.1" value={playerHandicapDraft} onChange={(event) => setPlayerHandicapDraft(event.target.value)} required /></div>
+                          <div className="field"><label htmlFor={`edit-player-attendance-${player.id}`}>Med</label><select id={`edit-player-attendance-${player.id}`} value={playerAttendanceDraft} onChange={(event) => { const status = ATTENDANCE_STATUSES.find((item) => item === event.target.value); if (status) setPlayerAttendanceDraft(status); }}>{ATTENDANCE_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}</select></div>
                           <div className="field"><label htmlFor={`override-round-${player.id}`}>Overstyr Turnerings-HCP for</label><select id={`override-round-${player.id}`} value={overrideRoundId} onChange={(event) => { setOverrideRoundId(event.target.value); setOverrideHandicapDraft(player.handicapOverrides?.[event.target.value]?.toFixed(1) ?? ""); }}>{tournamentRounds.map((round) => <option key={round.id} value={round.id}>Runde {round.id}</option>)}</select></div>
                           <div className="field"><label htmlFor={`override-hcp-${player.id}`}>Manuell HCP (tomt = automatisk)</label><input id={`override-hcp-${player.id}`} type="number" min="0" max="54" step="0.1" value={overrideHandicapDraft} onChange={(event) => setOverrideHandicapDraft(event.target.value)} placeholder="Automatisk" /></div>
                           <div className="admin-edit-actions"><button className="secondary-button" type="submit"><Save size={13} /> Lagre</button><button className="text-action" type="button" onClick={() => setEditingPlayerId("")}>Avbryt</button></div>
@@ -1146,8 +1195,7 @@ export default function Home() {
                       {liveNetVsPar !== undefined && <>
                         <div><span>Netto mot par</span><strong>{liveNetVsPar > 0 ? "+" : ""}{formatScore(liveNetVsPar)}</strong></div>
                         <div><span>HCP neste runde</span><strong>{liveNextHandicaps.map((hcp) => hcp.toFixed(1)).join(" / ")}</strong></div>
-                        <div><span>Turneringspoeng (foreløpig)</span><strong>{livePoints ?? "—"}</strong></div>
-                        <p>{liveAdjustments.map((adjustment) => adjustment === undefined ? "—" : `${adjustment > 0 ? "+" : ""}${adjustment.toFixed(1)}`).join(" / ")} justering før neste runde · poeng oppdateres når flere resultater registreres.</p>
+                        <p>{liveAdjustments.map((adjustment) => adjustment === undefined ? "—" : `${adjustment > 0 ? "+" : ""}${adjustment.toFixed(1)}`).join(" / ")} justering før neste runde.</p>
                       </>}
                     </div>
                   )}
@@ -1164,11 +1212,24 @@ export default function Home() {
                           event.currentTarget.value = "";
                         }}
                       />
+                      <input
+                        ref={scoreImageUploadInput}
+                        className="visually-hidden"
+                        type="file"
+                        accept="image/*"
+                        onChange={(event) => {
+                          void handleScanImage(event.currentTarget.files?.[0]);
+                          event.currentTarget.value = "";
+                        }}
+                      />
                       <button className="scan-button" type="button" disabled={isScanning} onClick={() => scoreImageInput.current?.click()}>
                         {isScanning ? <LoaderCircle className="spin" size={16} /> : <Camera size={16} />}
-                        {isScanning ? "Leser scorekort …" : "Skann scorekort / bilde"}
+                        {isScanning ? "Leser scorekort …" : "Ta bilde"}
                       </button>
-                      <span>Ta bilde med kameraet eller velg et skjermbilde. OCR-forslaget kan kontrolleres før lagring.</span>
+                      <button className="scan-button" type="button" disabled={isScanning} onClick={() => scoreImageUploadInput.current?.click()}>
+                        <Upload size={16} /> Last opp bilde
+                      </button>
+                      <span>Ta bilde eller last opp et bilde av scorekortet. OCR-forslaget kan kontrolleres før lagring.</span>
                     </div>
                   )}
                   {isTeamFormat(selectedRound.format) && selectedRoundTeams.length === 0 && <div className="leader-empty" style={{ padding: "3px 0 13px", textAlign: "left" }}>Ingen lag er satt opp for denne runden. <button className="subtle-link" style={{ display: "inline-flex", padding: 0 }} type="button" onClick={() => setView("players")}>Opprett lag <ArrowRight size={12} /></button></div>}
@@ -1192,26 +1253,26 @@ export default function Home() {
 
         {view === "leaderboard" && (
           <section className="content-section">
-            <SectionHeading eyebrow="Kampen om tittelen" title="Leaderboard" description="Plasseringer og poeng beregnes etter netto score. Lagets poengsum tilfaller begge spillerne." />
+            <SectionHeading eyebrow="Kampen om tittelen" title="Leaderboard" description="Spillerne rangeres etter summen av netto score fra registrerte runder, lavest først. Lagresultat føres på begge spillerne." />
             <section className="content-panel">
               <div className="leaderboard-controls">
                 <div className="segmented" role="tablist" aria-label="Leaderboard-visning">
-                  <button className={`segment${leaderboardMode === "oom" ? " selected" : ""}`} onClick={() => setLeaderboardMode("oom")} role="tab" aria-selected={leaderboardMode === "oom"}>Order of Merit</button>
+                  <button className={`segment${leaderboardMode === "overall" ? " selected" : ""}`} onClick={() => setLeaderboardMode("overall")} role="tab" aria-selected={leaderboardMode === "overall"}>Sammenlagt</button>
                   <button className={`segment${leaderboardMode === "round" ? " selected" : ""}`} onClick={() => setLeaderboardMode("round")} role="tab" aria-selected={leaderboardMode === "round"}>Runderesultat</button>
                 </div>
                 {leaderboardMode === "round" && <div className="field" style={{ minWidth: 215, flex: "0 1 270px" }}><label htmlFor="leader-round">Velg runde</label><select id="leader-round" value={leaderboardRoundId} onChange={(event) => setLeaderboardRoundId(Number(event.target.value))}><option value="" disabled>Velg runde</option>{tournamentRounds.map((round) => <option key={round.id} value={round.id}>Runde {round.id} · {round.course}</option>)}</select></div>}
               </div>
-              {leaderboardMode === "oom" ? (
+              {leaderboardMode === "overall" ? (
                 <>
-                  <div className="score-table-wrap"><table className="leaderboard-table"><thead><tr><th>Plass</th><th>Spiller</th><th>Start-HCP</th><th>Turnerings-HCP</th><th>Poeng</th></tr></thead><tbody>
-                    {oom.map(({ player, points }, index) => <tr key={player.id}><td className={index === 0 && points > 0 ? "trophy-rank" : "table-rank"}>{String(index + 1).padStart(2, "0")}{index === 0 && points > 0 ? "  ♛" : ""}</td><td><span className="player-inline"><PlayerAvatar name={player.name} dark />{player.name}</span></td><td className="result-label">{player.handicap.toFixed(1)}</td><td>{getTournamentHandicap(player, nextRound.id, data).toFixed(1)}</td><td className="points-cell">{points}<span className="score-par">POENG</span></td></tr>)}
+                  <div className="score-table-wrap"><table className="leaderboard-table"><thead><tr><th>Plass</th><th>Spiller</th><th>Score</th><th>Snitt brutto (singel)</th><th>Start-HCP</th><th>Turnerings-HCP</th></tr></thead><tbody>
+                    {overallLeaderboard.map(({ player, netScore, roundsPlayed, averageGrossScore }, index) => <tr key={player.id}><td className={index === 0 && roundsPlayed > 0 ? "trophy-rank" : "table-rank"}>{String(index + 1).padStart(2, "0")}{index === 0 && roundsPlayed > 0 ? "  ♛" : ""}</td><td><span className="player-inline"><PlayerAvatar name={player.name} dark />{player.name}</span></td><td className="leader-total-cell">{roundsPlayed ? formatScore(netScore) : "—"}</td><td>{averageGrossScore === undefined ? "—" : formatScore(averageGrossScore)}</td><td className="result-label">{player.handicap.toFixed(1)}</td><td>{getTournamentHandicap(player, nextRound.id, data).toFixed(1)}</td></tr>)}
                   </tbody></table></div>
-                  <div className="leaderboard-foot">Netto score = brutto slag − spille-HCP. I lagrunder brukes gjennomsnittet av spillernes HCP. Poeng per plassering: 1. 12 · 2. 10 · 3. 8 · 4. 6 · 5. 4 · 6. 2. Delte plasseringer deler poengene for plassene. Poeng fra lagrunder føres på begge lagspillere.</div>
+                  <div className="leaderboard-foot">Score er summen av netto score fra registrerte runder; lavest sum vinner. Snitt brutto beregnes kun fra spillerens registrerte singelrunder. Lagresultater føres på begge spillerne.</div>
                 </>
               ) : leaderboardResults.length ? (
                 <>
                   <ScoreResults results={leaderboardResults} players={data.players} admin={adminUnlocked} onEdit={startEditingScore} onDelete={handleDeleteScore} />
-                  <div className="leaderboard-foot">Rundepoeng deles ut etter plassering og legges til Order of Merit.</div>
+                  <div className="leaderboard-foot">Rundens netto score = brutto slag − spille-HCP; lavest score vinner runden.</div>
                 </>
               ) : <div className="empty-state">Ingen resultater registrert for denne runden ennå.</div>}
             </section>
@@ -1271,7 +1332,7 @@ export default function Home() {
         )}
       </main>
 
-      <footer className="page-wrap footer"><span><strong>WINTER TOUR 26/27</strong> · Tournament Club</span><span>Ni runder. Én Order of Merit.</span></footer>
+      <footer className="page-wrap footer"><span><strong>WINTER TOUR 26/27</strong> · Tournament Club</span><span>Ni runder. Sammenlagt på netto score.</span></footer>
       {toast && <div className="toast" role="status"><Check size={14} />{toast}</div>}
     </div>
   );
@@ -1434,8 +1495,8 @@ function ScoreResults({
   onEdit?: (score: Score) => void;
   onDelete?: (score: Score) => void;
 }) {
-  return <div className="score-table-wrap"><table className="score-table"><thead><tr><th>Plass</th><th>Spiller / lag</th><th>Tee</th><th>Brutto</th><th>Spille-HCP</th><th>Netto</th><th>Poeng</th>{admin && <th>Handling</th>}</tr></thead><tbody>{results.map((result, index) => (
-    <tr key={result.entryId}><td className={`table-rank${index === 0 ? " trophy-rank" : ""}`}>{String(index + 1).padStart(2, "0")}</td><td>{result.label}{result.playerIds.length === 2 && <div style={{ color: "#72777c", fontSize: 9, marginTop: 4 }}>{result.playerIds.map((id) => players.find((player) => player.id === id)?.name ?? "Spiller").join(" & ")}</div>}</td><td className="result-label">{result.teeName}</td><td>{result.strokes}</td><td className="result-label">{formatScore(result.playingHandicap)}</td><td className="score-value">{formatScore(result.netStrokes)}<span className="score-par">{result.netStrokes - result.teePar === 0 ? "E" : result.netStrokes - result.teePar > 0 ? `+${formatScore(result.netStrokes - result.teePar)}` : formatScore(result.netStrokes - result.teePar)}</span></td><td className="points-cell">{Number.isInteger(result.points) ? result.points : result.points.toFixed(1)}</td>
+  return <div className="score-table-wrap"><table className="score-table"><thead><tr><th>Plass</th><th>Spiller / lag</th><th>Tee</th><th>Brutto</th><th>Spille-HCP</th><th>Netto</th>{admin && <th>Handling</th>}</tr></thead><tbody>{results.map((result, index) => (
+    <tr key={result.entryId}><td className={`table-rank${index === 0 ? " trophy-rank" : ""}`}>{String(index + 1).padStart(2, "0")}</td><td>{result.label}{result.playerIds.length === 2 && <div style={{ color: "#72777c", fontSize: 9, marginTop: 4 }}>{result.playerIds.map((id) => players.find((player) => player.id === id)?.name ?? "Spiller").join(" & ")}</div>}</td><td className="result-label">{result.teeName}</td><td>{result.strokes}</td><td className="result-label">{formatScore(result.playingHandicap)}</td><td className="score-value">{formatScore(result.netStrokes)}<span className="score-par">{result.netStrokes - result.teePar === 0 ? "E" : result.netStrokes - result.teePar > 0 ? `+${formatScore(result.netStrokes - result.teePar)}` : formatScore(result.netStrokes - result.teePar)}</span></td>
       {admin && <td><div className="score-actions"><button className="text-action" type="button" onClick={() => onEdit?.(result.score)}><Pencil size={13} /> Rediger</button><button className="text-action danger-text" type="button" onClick={() => onDelete?.(result.score)}><Trash2 size={13} /> Slett</button></div></td>}
     </tr>
   ))}</tbody></table></div>;
