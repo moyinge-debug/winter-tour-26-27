@@ -46,6 +46,7 @@ export interface Score {
   roundId: number;
   entryId: string;
   strokes: number;
+  scorecardImage?: string;
   teeId?: string;
   updatedAt: string;
 }

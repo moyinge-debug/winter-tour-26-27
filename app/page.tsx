@@ -174,6 +174,38 @@ async function preprocessTrackManImage(file: File): Promise<HTMLCanvasElement> {
   return canvas;
 }
 
+async function compressScorecardImage(file: File): Promise<string> {
+  const bitmap = "createImageBitmap" in window
+    ? await createImageBitmap(file)
+    : await new Promise<HTMLImageElement>((resolve, reject) => {
+      const image = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      image.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(image);
+      };
+      image.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error("Could not decode scorecard image."));
+      };
+      image.src = objectUrl;
+    });
+  const width = bitmap instanceof HTMLImageElement ? bitmap.naturalWidth : bitmap.width;
+  const height = bitmap instanceof HTMLImageElement ? bitmap.naturalHeight : bitmap.height;
+  if (!width || !height) throw new Error("Scorecard image has invalid dimensions.");
+  const scale = Math.min(1, 1000 / width);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Could not create scorecard image canvas.");
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  if ("close" in bitmap) bitmap.close();
+  return canvas.toDataURL("image/jpeg", 0.65);
+}
+
 type TrackManScan = {
   playerName?: string;
   teeName?: string;
@@ -349,6 +381,7 @@ function isValidScore(value: unknown): value is Score {
     && value.strokes >= 40
     && value.strokes <= 180
     && typeof value.updatedAt === "string"
+    && (value.scorecardImage === undefined || (typeof value.scorecardImage === "string" && value.scorecardImage.startsWith("data:image/jpeg;base64,")))
     && (value.teeId === undefined || typeof value.teeId === "string");
 }
 
@@ -474,6 +507,8 @@ export default function Home() {
   const [scoreMethod, setScoreMethod] = useState<"manual" | "scan">("manual");
   const [isScanning, setIsScanning] = useState(false);
   const [scannedText, setScannedText] = useState("");
+  const [scorecardImage, setScorecardImage] = useState("");
+  const [lightboxScore, setLightboxScore] = useState<Score | null>(null);
   const [courseRoundId, setCourseRoundId] = useState(1);
   const [newTeeName, setNewTeeName] = useState("");
   const [pasteCourseText, setPasteCourseText] = useState("");
@@ -560,6 +595,19 @@ export default function Home() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    if (!lightboxScore) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setLightboxScore(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", closeOnEscape);
+      document.body.style.overflow = "";
+    };
+  }, [lightboxScore]);
+
   const tournamentRounds = data.rounds ?? rounds;
   const selectedRound = tournamentRounds.find((round) => round.id === selectedRoundId) ?? tournamentRounds[0];
   const selectedRoundTeams = data.teams.filter((team) => team.roundId === selectedRoundId);
@@ -599,6 +647,10 @@ export default function Home() {
   const nextRound = activeRound ?? tournamentRounds.find((round) => getRoundStatus(round) === "upcoming") ?? tournamentRounds[0];
   const finishedCount = tournamentRounds.filter((round) => getRoundStatus(round) === "completed").length;
   const activeCount = data.scores.length;
+  const storageSizeBytes = JSON.stringify({
+    ...data,
+    roundHandicaps: getTournamentHandicapSnapshot(data.players, data),
+  }).length * 2;
 
   function showToast(message: string) {
     setToast(message);
@@ -652,6 +704,7 @@ export default function Home() {
     setSelectedTeeId(getCourseSetup(data.courses, roundId).tees[0]?.id ?? "");
     setEntryId("");
     setStrokes("");
+    setScorecardImage("");
     setEditingScoreId("");
   }
 
@@ -661,6 +714,7 @@ export default function Home() {
     setSelectedRoundId(score.roundId);
     setEntryId(score.entryId);
     setStrokes(String(score.strokes));
+    setScorecardImage(score.scorecardImage ?? "");
     setSelectedTeeId(score.teeId ?? getCourseSetup(data.courses, score.roundId).tees[0]?.id ?? "");
     setEditingScoreId(score.id);
   }
@@ -850,6 +904,7 @@ export default function Home() {
       roundId: selectedRoundId,
       entryId,
       strokes: parsedScore,
+      scorecardImage: scorecardImage || undefined,
       teeId: scoreTee.id,
       updatedAt: new Date().toISOString(),
     };
@@ -858,8 +913,46 @@ export default function Home() {
       scores: [...current.scores.filter((item) => item.id !== score.id && !(item.roundId === selectedRoundId && item.entryId === entryId)), score],
     }));
     setStrokes("");
+    setScorecardImage("");
     setEditingScoreId("");
     showToast(editingScoreId ? "Resultatet er oppdatert. HCP-historikken er beregnet på nytt." : "Resultatet er lagret på scorekortet.");
+  }
+
+  async function handleSelectScorecardImage(file?: File, scan = false) {
+    if (!file) return;
+    try {
+      const compressedImage = await compressScorecardImage(file);
+      setScorecardImage(compressedImage);
+      showToast("Scorekortbildet er komprimert og klart til lagring.");
+      if (scan) await handleScanImage(file);
+    } catch (error) {
+      console.error("Could not compress scorecard image.", error);
+      showToast("Kunne ikke behandle bildet. Prøv et annet bilde.");
+    }
+  }
+
+  async function handleAdminScorecardImage(scoreId: string, file?: File) {
+    if (!adminUnlocked || !file) return;
+    try {
+      const compressedImage = await compressScorecardImage(file);
+      setData((current) => ({
+        ...current,
+        scores: current.scores.map((score) => score.id === scoreId ? { ...score, scorecardImage: compressedImage } : score),
+      }));
+      showToast("Scorekortbildet er lagret på resultatet.");
+    } catch (error) {
+      console.error("Could not update scorecard image.", error);
+      showToast("Kunne ikke behandle bildet. Prøv et annet bilde.");
+    }
+  }
+
+  function handleDeleteScorecardImage(score: Score) {
+    if (!adminUnlocked || !score.scorecardImage || !window.confirm("Slette kun scorekortbildet? Resultatet beholdes.")) return;
+    setData((current) => ({
+      ...current,
+      scores: current.scores.map((item) => item.id === score.id ? { ...item, scorecardImage: undefined } : item),
+    }));
+    showToast("Scorekortbildet er slettet. Resultatet er beholdt.");
   }
 
   function handleDeleteScore(score: Score) {
@@ -1234,6 +1327,7 @@ export default function Home() {
               <button className="secondary-button" type="button" onClick={() => backupInput.current?.click()}><Upload size={14} /> Importer sikkerhetskopi</button>
               <button className="admin-reset-button" type="button" onClick={handleResetTournament}><RotateCcw size={14} /> Nullstill alle resultater / testdata</button>
             </div>
+            <div className="storage-meter">Lagringsplass brukt: {(storageSizeBytes / (1024 * 1024)).toFixed(2)} MB / 5.0 MB <span>(ca. estimat for turneringsdata)</span></div>
           </section>
         )}
 
@@ -1249,6 +1343,31 @@ export default function Home() {
               {adminError && <span className="form-error" role="alert">{adminError}</span>}
               <button className="primary-button" type="submit"><Unlock size={14} /> Lås opp</button>
             </form>
+          </div>
+        )}
+        {scoreMethod === "manual" && (
+          <div className="scan-box">
+            <span>Legg ved et bilde av scorekortet. Bildet skaleres ned og komprimeres før det lagres sammen med resultatet.</span>
+            <input ref={scoreImageInput} className="visually-hidden" type="file" accept="image/*" capture="environment" onChange={(event) => {
+              void handleSelectScorecardImage(event.currentTarget.files?.[0]);
+              event.currentTarget.value = "";
+            }} />
+            <input ref={scoreImageUploadInput} className="visually-hidden" type="file" accept="image/*" onChange={(event) => {
+              void handleSelectScorecardImage(event.currentTarget.files?.[0]);
+              event.currentTarget.value = "";
+            }} />
+            <div className="score-image-pickers">
+              <button className="scan-button" type="button" onClick={() => scoreImageInput.current?.click()}><Camera size={16} /> Ta bilde</button>
+              <button className="scan-button" type="button" onClick={() => scoreImageUploadInput.current?.click()}><Upload size={16} /> Last opp bilde</button>
+            </div>
+          </div>
+        )}
+        {scorecardImage && (
+          <div className="scorecard-upload-preview">
+            <img src={scorecardImage} alt="Forhåndsvisning av scorekort" />
+            <div><strong>Scorekortbilde klart</strong><span>{(new Blob([scorecardImage]).size / 1024).toFixed(0)} KB · JPEG</span>
+              <button className="text-action danger-text" type="button" onClick={() => setScorecardImage("")}><Trash2 size={13} /> Fjern bilde</button>
+            </div>
           </div>
         )}
 
@@ -1342,6 +1461,23 @@ export default function Home() {
                             ))}
                           </div>
                         </details>
+                        <details className="hcp-history">
+                          <summary>Resultathistorikk</summary>
+                          <div className="player-score-history">
+                            {data.scores.filter((score) => {
+                              if (score.entryId === player.id) return true;
+                              const team = data.teams.find((item) => item.id === score.entryId && item.roundId === score.roundId);
+                              return team?.playerIds.includes(player.id) ?? false;
+                            }).sort((a, b) => a.roundId - b.roundId).map((score) => {
+                              const round = tournamentRounds.find((item) => item.id === score.roundId);
+                              return <div className="player-score-history-row" key={score.id}>
+                                <span>Runde {score.roundId} · {round?.course ?? "Ukjent bane"} · {score.strokes} slag</span>
+                                {score.scorecardImage && <button className="scorecard-view-button" type="button" onClick={() => setLightboxScore(score)}><Camera size={13} /> Se scorekort</button>}
+                              </div>;
+                            })}
+                            {!data.scores.some((score) => score.entryId === player.id || data.teams.some((team) => team.id === score.entryId && team.roundId === score.roundId && team.playerIds.includes(player.id))) && <span>Ingen registrerte resultater ennå.</span>}
+                          </div>
+                        </details>
                       </div>
                       <div className="hcp">{currentHandicap.toFixed(1)}<small style={{ display: "block", color: "#72777c", font: "8px Arial", textAlign: "right", marginTop: 3 }}>NÅVÆRENDE</small></div>
                     </article>
@@ -1402,27 +1538,15 @@ export default function Home() {
                   )}
                   {scoreMethod === "scan" && (
                     <div className="scan-box">
-                      <input
-                        ref={scoreImageInput}
-                        className="visually-hidden"
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        onChange={(event) => {
-                          void handleScanImage(event.currentTarget.files?.[0]);
-                          event.currentTarget.value = "";
-                        }}
-                      />
-                      <input
-                        ref={scoreImageUploadInput}
-                        className="visually-hidden"
-                        type="file"
-                        accept="image/*"
-                        onChange={(event) => {
-                          void handleScanImage(event.currentTarget.files?.[0]);
-                          event.currentTarget.value = "";
-                        }}
-                      />
+                      <span>Legg ved et bilde av scorekortet. Bildet skaleres ned og komprimeres før det lagres sammen med resultatet.</span>
+                      <input ref={scoreImageInput} className="visually-hidden" type="file" accept="image/*" capture="environment" onChange={(event) => {
+                        void handleSelectScorecardImage(event.currentTarget.files?.[0], true);
+                        event.currentTarget.value = "";
+                      }} />
+                      <input ref={scoreImageUploadInput} className="visually-hidden" type="file" accept="image/*" onChange={(event) => {
+                        void handleSelectScorecardImage(event.currentTarget.files?.[0], true);
+                        event.currentTarget.value = "";
+                      }} />
                       <button className="scan-button" type="button" disabled={isScanning} onClick={() => scoreImageInput.current?.click()}>
                         {isScanning ? <LoaderCircle className="spin" size={16} /> : <Camera size={16} />}
                         {isScanning ? "Leser scorekort …" : "Ta bilde"}
@@ -1430,7 +1554,7 @@ export default function Home() {
                       <button className="scan-button" type="button" disabled={isScanning} onClick={() => scoreImageUploadInput.current?.click()}>
                         <Upload size={16} /> Last opp bilde
                       </button>
-                      <span>Ta bilde eller last opp et bilde av scorekortet. OCR-forslaget kan kontrolleres før lagring.</span>
+                      <span>OCR-forslaget kan kontrolleres før lagring.</span>
                       {scannedText && (
                         <details style={{ width: "100%", textAlign: "left" }}>
                           <summary style={{ cursor: "pointer", fontWeight: 700 }}>Vis lest tekst</summary>
@@ -1441,7 +1565,7 @@ export default function Home() {
                   )}
                   {isTeamFormat(selectedRound.format) && selectedRoundTeams.length === 0 && <div className="leader-empty" style={{ padding: "3px 0 13px", textAlign: "left" }}>Ingen lag er satt opp for denne runden. <button className="subtle-link" style={{ display: "inline-flex", padding: 0 }} type="button" onClick={() => setView("players")}>Opprett lag <ArrowRight size={12} /></button></div>}
                   <button className="primary-button" type="submit"><Check size={14} /> {editingScoreId ? "Oppdater resultat" : "Lagre resultat"}</button>
-                  {editingScoreId && <button className="secondary-button cancel-edit" type="button" onClick={() => { setEditingScoreId(""); setEntryId(""); setStrokes(""); }}>Avbryt redigering</button>}
+                  {editingScoreId && <button className="secondary-button cancel-edit" type="button" onClick={() => { setEditingScoreId(""); setEntryId(""); setStrokes(""); setScorecardImage(""); }}>Avbryt redigering</button>}
                 </form>
               </section>
               <section className="content-panel">
@@ -1452,9 +1576,23 @@ export default function Home() {
                   admin={adminUnlocked}
                   onEdit={startEditingScore}
                   onDelete={handleDeleteScore}
+                  onViewImage={setLightboxScore}
+                  onImageUpload={handleAdminScorecardImage}
+                  onDeleteImage={handleDeleteScorecardImage}
                 /> : <div className="empty-state">Scorekortet er tomt ennå.<br />Legg inn første resultat for å se rundens leaderboard.</div>}
               </section>
             </div>
+            <section className="content-panel scorecard-gallery">
+              <div className="content-panel-header"><div><h3>Opplastede scorekort for runden</h3><p>Runde {selectedRound.id} · {selectedRound.course}</p></div><Camera size={17} color="#f15a24" /></div>
+              {results.filter((result) => result.score.scorecardImage).length ? (
+                <div className="scorecard-gallery-grid">{results.filter((result) => result.score.scorecardImage).map((result) => (
+                  <button className="scorecard-gallery-card" type="button" key={result.score.id} onClick={() => setLightboxScore(result.score)}>
+                    <img src={result.score.scorecardImage} alt={`Scorekort for ${result.label}`} />
+                    <span><strong><Camera size={13} /> Se scorekort</strong>{result.label} · {result.strokes} slag</span>
+                  </button>
+                ))}</div>
+              ) : <div className="empty-state">Ingen bilder er lastet opp for denne runden ennå.</div>}
+            </section>
           </section>
         )}
 
@@ -1478,7 +1616,7 @@ export default function Home() {
                 </>
               ) : leaderboardResults.length ? (
                 <>
-                  <ScoreResults results={leaderboardResults} players={data.players} admin={adminUnlocked} onEdit={startEditingScore} onDelete={handleDeleteScore} />
+                  <ScoreResults results={leaderboardResults} players={data.players} admin={adminUnlocked} onEdit={startEditingScore} onDelete={handleDeleteScore} onViewImage={setLightboxScore} onImageUpload={handleAdminScorecardImage} onDeleteImage={handleDeleteScorecardImage} />
                   <div className="leaderboard-foot">Rundens netto score mot par = brutto slag − spille-HCP − banepar; lavest score vinner runden.</div>
                 </>
               ) : <div className="empty-state">Ingen resultater registrert for denne runden ennå.</div>}
@@ -1641,6 +1779,23 @@ export default function Home() {
 
       <footer className="page-wrap footer"><span><strong>WINTER TOUR 26/27</strong> · Tournament Club</span><span>Ni runder. Sammenlagt på netto score mot par.</span></footer>
       {toast && <div className="toast" role="status"><Check size={14} />{toast}</div>}
+      {lightboxScore?.scorecardImage && (() => {
+        const round = tournamentRounds.find((item) => item.id === lightboxScore.roundId);
+        const team = data.teams.find((item) => item.id === lightboxScore.entryId);
+        const player = data.players.find((item) => item.id === lightboxScore.entryId);
+        const entryLabel = team?.name ?? player?.name ?? "Spiller";
+        const teamPlayers = team?.playerIds.map((id) => data.players.find((item) => item.id === id)?.name).filter((name): name is string => Boolean(name));
+        return <div className="scorecard-lightbox" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setLightboxScore(null); }}>
+          <div className="scorecard-lightbox-content" role="dialog" aria-modal="true" aria-label={`Scorekort for ${entryLabel}`}>
+            <div className="scorecard-lightbox-header">
+              <div><strong>{entryLabel}{teamPlayers?.length ? ` · ${teamPlayers.join(" & ")}` : ""}</strong><span>Runde {lightboxScore.roundId} · {round?.course ?? "Ukjent bane"} · {lightboxScore.strokes} slag</span></div>
+              <button className="scorecard-lightbox-close" type="button" onClick={() => setLightboxScore(null)}><X size={18} /> Lukk</button>
+            </div>
+            <img src={lightboxScore.scorecardImage} alt={`Scorekort for ${entryLabel}, runde ${lightboxScore.roundId}`} />
+            <button className="scorecard-lightbox-close mobile-lightbox-close" type="button" onClick={() => setLightboxScore(null)}><X size={18} /> Lukk</button>
+          </div>
+        </div>;
+      })()}
     </div>
   );
 }
@@ -1795,16 +1950,34 @@ function ScoreResults({
   admin,
   onEdit,
   onDelete,
+  onViewImage,
+  onImageUpload,
+  onDeleteImage,
 }: {
   results: ResultRow[];
   players: Player[];
   admin: boolean;
   onEdit?: (score: Score) => void;
   onDelete?: (score: Score) => void;
+  onViewImage?: (score: Score) => void;
+  onImageUpload?: (scoreId: string, file?: File) => void;
+  onDeleteImage?: (score: Score) => void;
 }) {
   return <div className="score-table-wrap"><table className="score-table"><thead><tr><th>Plass</th><th>Spiller / lag</th><th>Tee</th><th>Brutto</th><th>Spille-HCP</th><th>Mot par</th>{admin && <th>Handling</th>}</tr></thead><tbody>{results.map((result, index) => (
-    <tr key={result.entryId}><td className={`table-rank${index === 0 ? " trophy-rank" : ""}`}>{String(index + 1).padStart(2, "0")}</td><td>{result.label}{result.playerIds.length === 2 && <div style={{ color: "#72777c", fontSize: 9, marginTop: 4 }}>{result.playerIds.map((id) => players.find((player) => player.id === id)?.name ?? "Spiller").join(" & ")}</div>}</td><td className="result-label">{result.teeName}</td><td>{result.strokes}</td><td className="result-label">{formatScore(result.playingHandicap)}</td><td className="score-value">{formatRelativeScore(result.netStrokes)}</td>
-      {admin && <td><div className="score-actions"><button className="text-action" type="button" onClick={() => onEdit?.(result.score)}><Pencil size={13} /> Rediger</button><button className="text-action danger-text" type="button" onClick={() => onDelete?.(result.score)}><Trash2 size={13} /> Slett</button></div></td>}
+    <tr key={result.entryId}><td className={`table-rank${index === 0 ? " trophy-rank" : ""}`}>{String(index + 1).padStart(2, "0")}</td><td>{result.label}{result.playerIds.length === 2 && <div style={{ color: "#72777c", fontSize: 9, marginTop: 4 }}>{result.playerIds.map((id) => players.find((player) => player.id === id)?.name ?? "Spiller").join(" & ")}</div>}
+      {result.score.scorecardImage && <button className="scorecard-view-button" type="button" onClick={() => onViewImage?.(result.score)}><Camera size={13} /> Se scorekort</button>}
+    </td><td className="result-label">{result.teeName}</td><td>{result.strokes}</td><td className="result-label">{formatScore(result.playingHandicap)}</td><td className="score-value">{formatRelativeScore(result.netStrokes)}</td>
+      {admin && <td><div className="score-actions">
+        <button className="text-action" type="button" onClick={() => onEdit?.(result.score)}><Pencil size={13} /> Rediger</button>
+        <label className="text-action score-image-admin-upload"><Upload size={13} /> {result.score.scorecardImage ? "Bytt bilde" : "Legg til bilde"}
+          <input className="visually-hidden" type="file" accept="image/*" onChange={(event) => {
+            onImageUpload?.(result.score.id, event.currentTarget.files?.[0]);
+            event.currentTarget.value = "";
+          }} />
+        </label>
+        {result.score.scorecardImage && <button className="text-action danger-text" type="button" onClick={() => onDeleteImage?.(result.score)}><Trash2 size={13} /> Slett bilde</button>}
+        <button className="text-action danger-text" type="button" onClick={() => onDelete?.(result.score)}><Trash2 size={13} /> Slett resultat</button>
+      </div></td>}
     </tr>
   ))}</tbody></table></div>;
 }

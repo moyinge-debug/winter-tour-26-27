@@ -25,6 +25,8 @@ I lagrunder benytter lagresultatet gjennomsnittlig spillehandicap. Lagets brutto
 
 Admin kan importere tee-data fra en Golfify-kurside; hentede tee-steder vises først i en forhåndsvisning og lagres først etter bekreftelse. Score kan registreres manuelt eller foreslås fra et bilde med Tesseract.js OCR. OCR kan lese feil, så kontroller alltid tee, spiller og score før du lagrer. Tekstimport av tee-oppsett støtter linjer som `Hvit | Par 72 | CR 73,1 | Slope 132` eller `Hvit 72 73.1 132`.
 
+Scorekortbilder komprimeres i nettleseren til JPEG (maks. 1000 px bredde, kvalitet 0,65) og lagres sammen med resultatet. Bildene vises i rundeoversikten, scorekortet og spillerhistorikken, og følger med i sikkerhetskopier. Admin kan bytte eller slette bilder uten å fjerne resultatet.
+
 ## Admin
 
 Admin åpnes fra hengelås-knappen med standard-PIN `2026`. PIN-koden kan endres i `ADMIN_PIN` i `app/page.tsx`. Opplåsing varer i fanens `sessionStorage`. Admin kan redigere/slette spillere, lag, score, runder og tee-steder, styre manuelle HCP-overstyringer og eksportere/importere JSON-sikkerhetskopier. Sletting krever bekreftelse; full nullstilling krever en ekstra bekreftelse.

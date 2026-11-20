@@ -243,6 +243,35 @@ button { cursor: pointer; }
 .score-actions .text-action { min-height: 32px; padding: 6px; white-space: nowrap; }
 .text-action { padding: 4px 0; border: 0; background: none; color: var(--accent); font-size: 10px; }
 .danger-text, .danger { color: #b42318; }
+.scorecard-view-button { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px; padding: 5px 7px; border: 1px solid #f4c7b5; border-radius: 2px; background: #fffaf7; color: #c64418; font-size: 9px; font-weight: 700; white-space: nowrap; }
+.scorecard-view-button:hover { border-color: var(--accent); }
+.score-image-admin-upload { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.score-image-pickers { display: flex; flex-wrap: wrap; gap: 8px; }
+.scorecard-upload-preview { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; padding: 9px; border: 1px solid var(--line); background: #f7f8f8; }
+.scorecard-upload-preview img { width: 76px; height: 76px; object-fit: cover; border: 1px solid var(--line); background: #fff; }
+.scorecard-upload-preview > div { display: grid; gap: 5px; }
+.scorecard-upload-preview strong { font-size: 11px; }
+.scorecard-upload-preview span { color: var(--muted); font-size: 10px; }
+.scorecard-upload-preview .text-action { display: flex; align-items: center; gap: 5px; justify-self: start; }
+.player-score-history { display: grid; gap: 7px; margin-top: 8px; }
+.player-score-history-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 5px; padding: 7px; background: #f7f8f8; color: var(--ink-soft); }
+.scorecard-gallery { margin-top: 15px; }
+.scorecard-gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; padding: 14px; }
+.scorecard-gallery-card { min-width: 0; overflow: hidden; padding: 0; border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-align: left; }
+.scorecard-gallery-card:hover { border-color: var(--accent); }
+.scorecard-gallery-card img { display: block; width: 100%; height: 135px; object-fit: cover; background: #f7f8f8; }
+.scorecard-gallery-card > span { display: grid; gap: 5px; padding: 9px; color: var(--muted); font-size: 10px; }
+.scorecard-gallery-card strong { display: flex; align-items: center; gap: 5px; color: var(--accent); font-size: 10px; }
+.scorecard-lightbox { position: fixed; z-index: 100; inset: 0; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(8, 9, 10, .96); }
+.scorecard-lightbox-content { display: flex; flex-direction: column; width: min(100%, 1100px); height: min(100%, 1000px); min-height: 0; }
+.scorecard-lightbox-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0 14px; color: #fff; }
+.scorecard-lightbox-header > div { display: grid; gap: 5px; min-width: 0; }
+.scorecard-lightbox-header strong { font-size: 14px; }
+.scorecard-lightbox-header span { color: #c2c5c8; font-size: 11px; }
+.scorecard-lightbox-content > img { display: block; flex: 1; min-height: 0; width: 100%; object-fit: contain; }
+.scorecard-lightbox-close { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 10px 17px; border: 1px solid var(--accent); border-radius: 3px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; }
+.scorecard-lightbox-close:hover { background: var(--accent-hover); }
+.mobile-lightbox-close { display: none; margin-top: 12px; }
 .score-table-wrap { overflow-x: auto; }
 .score-table { width: 100%; border-collapse: collapse; min-width: 570px; }
 .score-table th { color: var(--muted); font-size: 9px; font-weight: 500; text-align: left; text-transform: uppercase; letter-spacing: .08em; padding: 12px 15px; border-bottom: 1px solid var(--line); }
@@ -294,6 +323,8 @@ button { cursor: pointer; }
 .admin-toolbar-copy span { color: var(--muted); font-size: 9px; line-height: 1.4; }
 .admin-toolbar-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .admin-toolbar-actions .secondary-button, .admin-reset-button { min-height: 36px; font-size: 10px; }
+.storage-meter { grid-column: 1 / -1; color: var(--ink-soft); font-size: 10px; font-weight: 700; }
+.storage-meter span { color: var(--muted); font-weight: 400; }
 .admin-reset-button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; padding: 8px 11px; border: 1px solid #efc3b8; border-radius: 2px; background: #fff; color: #a53d2a; font-weight: 700; }
 .admin-reset-button:hover { border-color: #b42318; background: #fff5f3; }
 .admin-locked-note { display: flex; align-items: center; gap: 8px; padding: 14px 18px; color: var(--muted); font-size: 10px; line-height: 1.5; }
@@ -361,9 +392,19 @@ button { cursor: pointer; }
   .score-methods { overflow-x: auto; padding-left: 12px; padding-right: 12px; }
   .score-methods .segment { flex: 0 0 auto; padding: 8px; }
   .score-actions { flex-direction: column; }
+  .scorecard-lightbox { padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom)); }
+  .scorecard-lightbox-content { width: 100%; height: 100%; }
+  .scorecard-lightbox-header { align-items: flex-start; }
+  .scorecard-lightbox-header strong { font-size: 12px; }
+  .scorecard-lightbox-header span { font-size: 10px; }
+  .scorecard-lightbox-header .scorecard-lightbox-close { display: none; }
+  .mobile-lightbox-close { display: inline-flex; width: 100%; }
+  .scorecard-gallery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; gap: 8px; }
+  .scorecard-gallery-card img { height: 110px; }
   .admin-toolbar { grid-template-columns: 1fr; align-items: start; gap: 11px; }
   .admin-toolbar-actions { justify-content: stretch; }
   .admin-toolbar-actions > button { flex: 1 1 145px; }
+  .storage-meter { line-height: 1.6; }
   .round-row-with-actions { gap: 4px; }
   .round-row-with-actions > .icon-button { width: 34px; height: 34px; }
   .round-edit-form { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0 0 10px; }
