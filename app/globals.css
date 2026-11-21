@@ -45,11 +45,9 @@ button { cursor: pointer; }
 
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand-mark {
-  width: 42px; height: 42px; border: 1px solid #303337;
-  border-radius: 12px; display: grid; place-items: center; color: var(--accent); background: var(--ink);
-  font-size: 12px; font-weight: 800; letter-spacing: -.08em;
+  width: 54px; height: 54px; display: block; object-fit: contain;
+  border-radius: 10px;
 }
-.brand-name { color: var(--ink); font-size: 15px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .topbar-right { display: flex; align-items: center; gap: 16px; }
 .admin-trigger, .admin-lock-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); color: var(--ink-soft); font-size: 10px; font-weight: 700; }
 .admin-trigger:hover, .admin-lock-button:hover { border-color: var(--accent); color: var(--accent); }
@@ -62,20 +60,21 @@ button { cursor: pointer; }
   position: relative; overflow: hidden; min-height: 310px; margin: 30px 0 28px; padding: 42px 46px;
   border: 0; border-radius: 3px;
   background:
-    linear-gradient(90deg, rgba(20,22,24,.98) 0%, rgba(25,27,29,.94) 48%, rgba(25,27,29,.35) 100%),
+    linear-gradient(90deg, rgba(20,22,24,.72) 0%, rgba(25,27,29,.36) 48%, rgba(25,27,29,.08) 100%),
     #191b1d;
 }
 .hero::before, .hero::after {
   content: ""; position: absolute; pointer-events: none;
 }
 .hero::before {
-  right: 0; top: 0; bottom: 0; width: 52%;
+  inset: 0;
+  width: 100%;
   background: url("/icons/bilder/atle.JPEG") center 30% / cover no-repeat;
-  opacity: .9;
+  opacity: 1;
 }
 .hero::after {
   inset: 0;
-  background: linear-gradient(90deg, rgba(20,22,24,.98) 0%, rgba(25,27,29,.72) 48%, rgba(25,27,29,.08) 78%);
+  background: linear-gradient(90deg, rgba(20,22,24,.58) 0%, rgba(25,27,29,.18) 48%, rgba(25,27,29,.02) 78%);
 }
 .hero-content { position: relative; z-index: 1; max-width: 610px; }
 .eyebrow { color: var(--accent); font-size: 10px; text-transform: uppercase; letter-spacing: .2em; font-weight: 700; }
@@ -369,8 +368,8 @@ button { cursor: pointer; }
   .hero-round strong { font-size: 20px; }
   .hero-content { max-width: 90%; }
   .hero-copy { font-size: 12px; max-width: 330px; }
-  .hero::before { width: 100%; height: 100%; opacity: .48; background-position: center 25%; }
-  .hero::after { inset: 0; width: 100%; height: 100%; background: linear-gradient(90deg, rgba(20,22,24,.96), rgba(25,27,29,.56)); }
+  .hero::before { width: 100%; height: 100%; opacity: .88; background-position: center 25%; }
+  .hero::after { inset: 0; width: 100%; height: 100%; background: linear-gradient(90deg, rgba(20,22,24,.66), rgba(25,27,29,.28)); }
   .main-nav { gap: 21px; }
   .nav-item { font-size: 10px; }
   .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 9px; }

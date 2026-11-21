@@ -1282,8 +1282,7 @@ export default function Home() {
     <div className="app-shell">
       <header className="page-wrap topbar">
         <div className="brand">
-          <span className="brand-mark" aria-hidden="true">WT</span>
-          <div className="brand-name">Winter Tour 26/27</div>
+          <img className="brand-mark" src="/icons/logo ny.jpg" alt="Winter Tour 26/27" />
         </div>
         <div className="topbar-right">
           <span className="season-pill"><CalendarDays size={13} /> 9 runder <span style={{ color: "#f15a24" }}>·</span> nov – mar</span>
@@ -1304,10 +1303,8 @@ export default function Home() {
             <p className="hero-copy">Fra Utahs røde ørken til Atlanterhavets kyst. Samle gjengen, spill om æren og skriv neste kapittel i Winter Tour.</p>
             <div className="hero-bottom">
               <button className="primary-button" onClick={() => changeView("scorecard")}><Plus size={14} /> Registrer resultat</button>
-              <button className="text-button" onClick={() => changeView("leaderboard")}>Se leaderboard <ArrowRight size={14} /></button>
             </div>
           </div>
-          <div className="hero-round"><span>{activeRound ? "Runden er i gang" : "Neste tee-off"}</span><strong>Runde {nextRound.id} / 9</strong></div>
         </section>
 
         <nav className="main-nav" aria-label="Hovedmeny">
@@ -1343,23 +1340,6 @@ export default function Home() {
               {adminError && <span className="form-error" role="alert">{adminError}</span>}
               <button className="primary-button" type="submit"><Unlock size={14} /> Lås opp</button>
             </form>
-          </div>
-        )}
-        {scoreMethod === "manual" && (
-          <div className="scan-box">
-            <span>Legg ved et bilde av scorekortet. Bildet skaleres ned og komprimeres før det lagres sammen med resultatet.</span>
-            <input ref={scoreImageInput} className="visually-hidden" type="file" accept="image/*" capture="environment" onChange={(event) => {
-              void handleSelectScorecardImage(event.currentTarget.files?.[0]);
-              event.currentTarget.value = "";
-            }} />
-            <input ref={scoreImageUploadInput} className="visually-hidden" type="file" accept="image/*" onChange={(event) => {
-              void handleSelectScorecardImage(event.currentTarget.files?.[0]);
-              event.currentTarget.value = "";
-            }} />
-            <div className="score-image-pickers">
-              <button className="scan-button" type="button" onClick={() => scoreImageInput.current?.click()}><Camera size={16} /> Ta bilde</button>
-              <button className="scan-button" type="button" onClick={() => scoreImageUploadInput.current?.click()}><Upload size={16} /> Last opp bilde</button>
-            </div>
           </div>
         )}
         {scorecardImage && (
@@ -1511,7 +1491,6 @@ export default function Home() {
                 <div className="content-panel-header"><div><h3>{editingScoreId ? "Rediger resultat" : "Registrer resultat"}</h3><p>Resultatene lagres automatisk på denne enheten.</p></div><Medal size={17} color="#f15a24" /></div>
                 <div className="score-methods" role="tablist" aria-label="Registreringsmetode">
                   <button type="button" className={`segment${scoreMethod === "manual" ? " selected" : ""}`} onClick={() => setScoreMethod("manual")} role="tab" aria-selected={scoreMethod === "manual"}>Manuell registrering</button>
-                  <button type="button" className={`segment${scoreMethod === "scan" ? " selected" : ""}`} onClick={() => setScoreMethod("scan")} role="tab" aria-selected={scoreMethod === "scan"}><ScanLine size={13} /> Skann scorekort</button>
                 </div>
                 <form className="score-form" onSubmit={handleSaveScore}>
                   <div className="field"><label htmlFor="score-round">Runde / bane</label><select id="score-round" value={selectedRoundId} onChange={(event) => {
@@ -1534,33 +1513,6 @@ export default function Home() {
                         <div><span>HCP neste runde</span><strong>{liveNextHandicaps.map((hcp) => hcp.toFixed(1)).join(" / ")}</strong></div>
                         <p>{liveAdjustments.map((adjustment) => adjustment === undefined ? "—" : `${adjustment > 0 ? "+" : ""}${adjustment.toFixed(1)}`).join(" / ")} justering før neste runde.</p>
                       </>}
-                    </div>
-                  )}
-                  {scoreMethod === "scan" && (
-                    <div className="scan-box">
-                      <span>Legg ved et bilde av scorekortet. Bildet skaleres ned og komprimeres før det lagres sammen med resultatet.</span>
-                      <input ref={scoreImageInput} className="visually-hidden" type="file" accept="image/*" capture="environment" onChange={(event) => {
-                        void handleSelectScorecardImage(event.currentTarget.files?.[0], true);
-                        event.currentTarget.value = "";
-                      }} />
-                      <input ref={scoreImageUploadInput} className="visually-hidden" type="file" accept="image/*" onChange={(event) => {
-                        void handleSelectScorecardImage(event.currentTarget.files?.[0], true);
-                        event.currentTarget.value = "";
-                      }} />
-                      <button className="scan-button" type="button" disabled={isScanning} onClick={() => scoreImageInput.current?.click()}>
-                        {isScanning ? <LoaderCircle className="spin" size={16} /> : <Camera size={16} />}
-                        {isScanning ? "Leser scorekort …" : "Ta bilde"}
-                      </button>
-                      <button className="scan-button" type="button" disabled={isScanning} onClick={() => scoreImageUploadInput.current?.click()}>
-                        <Upload size={16} /> Last opp bilde
-                      </button>
-                      <span>OCR-forslaget kan kontrolleres før lagring.</span>
-                      {scannedText && (
-                        <details style={{ width: "100%", textAlign: "left" }}>
-                          <summary style={{ cursor: "pointer", fontWeight: 700 }}>Vis lest tekst</summary>
-                          <pre style={{ margin: "8px 0 0", maxHeight: 220, overflow: "auto", whiteSpace: "pre-wrap", fontSize: 12, background: "#f5f6f4", padding: 10, borderRadius: 8 }}>{scannedText}</pre>
-                        </details>
-                      )}
                     </div>
                   )}
                   {isTeamFormat(selectedRound.format) && selectedRoundTeams.length === 0 && <div className="leader-empty" style={{ padding: "3px 0 13px", textAlign: "left" }}>Ingen lag er satt opp for denne runden. <button className="subtle-link" style={{ display: "inline-flex", padding: 0 }} type="button" onClick={() => setView("players")}>Opprett lag <ArrowRight size={12} /></button></div>}
