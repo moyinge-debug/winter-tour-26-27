@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --ink: #17191c;
+  --ink-soft: #282b2f;
+  --accent: #f15a24;
+  --accent-hover: #d94716;
+  --surface: #fff;
+  --paper: #f3f4f5;
+  --line: #e1e3e5;
+  --muted: #72777c;
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+
+.app-shell {
+  min-height: 100vh;
+  background: var(--paper);
+}
+
+.page-wrap { width: min(1240px, calc(100% - 56px)); margin: 0 auto; }
+
+.topbar {
+  height: 78px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand-mark {
+  width: 54px; height: 54px; display: block; object-fit: contain;
+}
+.brand-title {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin: 0;
+  color: var(--ink);
+  font: 800 24px/1 Arial, Helvetica, sans-serif;
+  letter-spacing: -0.04em;
+  white-space: nowrap;
+}
+.brand-title span { color: var(--accent); }
+.topbar-right { display: flex; align-items: center; gap: 16px; }
