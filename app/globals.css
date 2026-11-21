@@ -46,7 +46,6 @@ button { cursor: pointer; }
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand-mark {
   width: 54px; height: 54px; display: block; object-fit: contain;
-  border-radius: 10px;
 }
 .topbar-right { display: flex; align-items: center; gap: 16px; }
 .admin-trigger, .admin-lock-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); color: var(--ink-soft); font-size: 10px; font-weight: 700; }

@@ -1282,7 +1282,7 @@ export default function Home() {
     <div className="app-shell">
       <header className="page-wrap topbar">
         <div className="brand">
-          <img className="brand-mark" src="/icons/logo ny.jpg" alt="Winter Tour 26/27" />
+          <img className="brand-mark" src="/icons/logo%20ny.jpg" alt="Winter Tour 26/27" />
         </div>
         <div className="topbar-right">
           <span className="season-pill"><CalendarDays size={13} /> 9 runder <span style={{ color: "#f15a24" }}>·</span> nov – mar</span>
@@ -1291,7 +1291,6 @@ export default function Home() {
           ) : (
             <button className="admin-trigger" type="button" onClick={() => { setShowPinPrompt(true); setAdminError(""); }}><Lock size={13} /> Admin</button>
           )}
-          <span className="avatar">WT</span>
         </div>
       </header>
 
