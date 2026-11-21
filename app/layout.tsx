@@ -13,11 +13,10 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: "/icons/wt-icon.svg", type: "image/svg+xml" },
-      { url: "/icons/wt-icon-192.png", sizes: "192x192", type: "image/png" },
-      { url: "/icons/wt-icon-512.png", sizes: "512x512", type: "image/png" },
+      { url: "/icons/logo-ny-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/logo-ny-512.png", sizes: "512x512", type: "image/png" },
     ],
-    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
+    apple: [{ url: "/icons/logo-ny-180.png", sizes: "180x180", type: "image/png" }],
   },
 };
 
