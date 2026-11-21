@@ -1626,18 +1626,13 @@ export default function Home() {
 
         {view === "rules" && (
           <section className="content-section rules-page">
-            <SectionHeading eyebrow="Winter Tour 26/27" title="Regler & spilleformater" description="Slik spiller vi, samler Order of Merit-poeng og beregner handicap gjennom vintersesongen." />
+            <SectionHeading eyebrow="Winter Tour 26/27" title="Regler & spilleformater" description="Slik spiller vi og beregner handicap gjennom vintersesongen." />
 
             <section className="rules-panel">
-              <div className="rules-panel-heading"><span className="rules-icon"><Trophy size={17} /></span><div><h3>Turneringsformat & Order of Merit</h3><p>Ni runder gjennom vinteren 2026/2027. Poengene fra hver runde teller på den individuelle Order of Merit-listen.</p></div></div>
+              <div className="rules-panel-heading"><span className="rules-icon"><Trophy size={17} /></span><div><h3>Turneringsformat</h3><p>Ni runder gjennom vinteren 2026/2027.</p></div></div>
               <div className="rules-panel-content">
-                <div className="rules-points" aria-label="Poengfordeling per runde">
-                  {[["1. plass", "12p"], ["2. plass", "10p"], ["3. plass", "8p"], ["4. plass", "6p"], ["5. plass", "4p"], ["6. plass", "2p"]].map(([place, points]) => (
-                    <div className="rules-point-row" key={place}><span>{place}</span><strong>{points}</strong></div>
-                  ))}
-                </div>
-                <p>Delte plasseringer deler poengene som tilhører plassene likt. Eksempel: to spillere som deler 1. plass deler 1.- og 2.-plasspoengene (12 + 10) og får 11 poeng hver.</p>
-                <p>I par-runder får begge spillerne på laget lagets opptjente poeng på hver sin individuelle Order of Merit-liste.</p>
+                <p>Turneringen avgjøres av summen av netto slag til par fra alle registrerte runder. Laveste totalsum vinner.</p>
+                <p>I par-runder gjelder lagets netto resultat for begge spillerne.</p>
               </div>
             </section>
 
