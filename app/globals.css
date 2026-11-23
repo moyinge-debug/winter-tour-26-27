@@ -306,6 +306,8 @@ button { cursor: pointer; }
 .leaderboard-table .player-inline { display: flex; align-items: center; gap: 9px; }
 .player-inline .player-avatar { width: 29px; height: 29px; }
 .leaderboard-hcp-change { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
+.hcp-change-negative { color: #9ad5a7; }
+.hcp-change-positive { color: #ef6a5b; }
 .result-label { color: var(--muted) !important; }
 .leaderboard-foot { color: var(--muted); font-size: 10px; padding: 12px 17px; border-top: 1px solid var(--line); line-height: 1.5; }
 .course-default-note { align-self: center; color: var(--muted); font-size: 10px; }

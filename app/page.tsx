@@ -1471,7 +1471,7 @@ export default function Home() {
                   <PlayerAvatar name={player.name} dark />
                   <div className="leader-info">
                     <div className={`leader-name${medal ? ` ${medal}` : ""}`}>{player.name}</div>
-                    <div className="leader-sub">Endring HCP {handicapChange > 0 ? "+" : ""}{handicapChange.toFixed(1)}</div>
+                    <div className="leader-sub">Endring HCP <span className={handicapChange < 0 ? "hcp-change-negative" : handicapChange > 0 ? "hcp-change-positive" : ""}>{handicapChange > 0 ? "+" : ""}{handicapChange.toFixed(1)}</span></div>
                   </div>
                   <div className="leader-scores">
                     <div className="leader-total">{roundsPlayed ? formatRelativeScore(netScore) : "—"}<small>TIL PAR NETTO</small></div>
@@ -1718,7 +1718,7 @@ export default function Home() {
                 <>
                   <div className="score-table-wrap"><table className="leaderboard-table"><thead><tr><th>Plass</th><th>Spiller</th><th>Til par Netto</th><th>Snitt brutto</th></tr></thead><tbody>
                     {overallLeaderboard.map(({ player, netScore, roundsPlayed, averageGrossScore, handicapChange }, index) => {
-                      return <tr key={player.id}><td className={index === 0 && roundsPlayed > 0 ? "trophy-rank" : "table-rank"}>{String(index + 1).padStart(2, "0")}{index === 0 && roundsPlayed > 0 ? "  ♛" : ""}</td><td><span className="player-inline"><PlayerAvatar name={player.name} dark /><span><span>{player.name}</span><small className="leaderboard-hcp-change">Endring HCP {handicapChange > 0 ? "+" : ""}{handicapChange.toFixed(1)}</small></span></span></td><td className="leader-total-cell">{roundsPlayed ? formatRelativeScore(netScore) : "—"}</td><td>{averageGrossScore === undefined ? "—" : formatScore(averageGrossScore)}</td></tr>;
+                      return <tr key={player.id}><td className={index === 0 && roundsPlayed > 0 ? "trophy-rank" : "table-rank"}>{String(index + 1).padStart(2, "0")}{index === 0 && roundsPlayed > 0 ? "  ♛" : ""}</td><td><span className="player-inline"><PlayerAvatar name={player.name} dark /><span><span>{player.name}</span><small className="leaderboard-hcp-change">Endring HCP <span className={handicapChange < 0 ? "hcp-change-negative" : handicapChange > 0 ? "hcp-change-positive" : ""}>{handicapChange > 0 ? "+" : ""}{handicapChange.toFixed(1)}</span></small></span></span></td><td className="leader-total-cell">{roundsPlayed ? formatRelativeScore(netScore) : "—"}</td><td>{averageGrossScore === undefined ? "—" : formatScore(averageGrossScore)}</td></tr>;
                     })}
                   </tbody></table></div>
                   <div className="leaderboard-foot">Score er summen av netto score mot par fra registrerte runder; lavest sum vinner. Snitt brutto beregnes kun fra spillerens registrerte singelrunder. Lagresultater føres på begge spillerne.</div>
