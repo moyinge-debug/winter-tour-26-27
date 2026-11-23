@@ -330,7 +330,7 @@ function getLeaderboard(data: TournamentData) {
   return data.players.map((player) => {
     const total = totals.get(player.id);
     const currentHandicap = getTournamentHandicap(player, currentRoundId, data);
-    const handicapChange = player.handicap - currentHandicap;
+    const handicapChange = currentHandicap - player.handicap;
     return {
       player,
       netScore: total?.netScore ?? 0,
