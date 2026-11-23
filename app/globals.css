@@ -113,12 +113,15 @@ button { cursor: pointer; }
 .panel-dark .panel-head { border-color: rgba(255,255,255,.13); }
 .panel-title { font: 600 17px Arial, Helvetica, sans-serif; }
 .panel-kicker { color: var(--muted); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; margin-top: 5px; }
+.panel-kicker.live-kicker { color: var(--accent); }
 .panel-dark .panel-kicker { color: #aeb2b6; }
 .round-list { padding: 4px 17px 8px; }
 .round-admin-row { border-bottom: 1px solid #eceeef; }
 .round-admin-row:last-child { border-bottom: 0; }
 .round-row-with-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 9px; align-items: center; }
 .round-row-with-actions .round-row { border-bottom: 0; }
+.round-row-actions { display: flex; gap: 5px; }
+.add-round-form { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr 1fr auto; align-items: end; gap: 9px; margin: 10px 17px 17px; padding: 12px; border: 1px solid var(--line); background: #f7f8f8; }
 .round-edit-form { display: grid; grid-template-columns: 1.4fr repeat(2, minmax(120px, .75fr)) 1fr 1.2fr auto; align-items: end; gap: 9px; padding: 12px; margin: 0 0 10px 42px; border: 1px solid var(--line); background: #f7f8f8; }
 .round-row { display: grid; grid-template-columns: 35px minmax(0, 1fr) auto; align-items: center; gap: 11px; padding: 12px 2px; border-bottom: 1px solid #eceeef; }
 .round-row:last-child { border-bottom: 0; }
@@ -147,6 +150,7 @@ button { cursor: pointer; }
 .leader-name { font-size: 14px; color: #fff; }
 .leader-name.gold, .leader-name.silver, .leader-name.bronze { font-weight: 700; }
 .leader-sub { color: #aeb2b6; font-size: 9px; margin-top: 4px; }
+.leader-scores { display: flex; align-items: center; gap: 16px; }
 .leader-total { text-align: right; color: var(--accent); font: 600 17px Arial, Helvetica, sans-serif; }
 .leader-total small { display: block; color: #aeb2b6; font: 8px Arial, sans-serif; margin-top: 3px; }
 .leader-empty { color: #c2c5c8; font-size: 11px; text-align: center; padding: 25px 18px; line-height: 1.6; }
@@ -417,6 +421,8 @@ button { cursor: pointer; }
   .round-row-with-actions > .icon-button { width: 34px; height: 34px; }
   .round-edit-form { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0 0 10px; }
   .round-edit-form .admin-edit-actions { grid-column: 1 / -1; }
+  .add-round-form { grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 10px 12px 12px; }
+  .add-round-form .primary-button { grid-column: 1 / -1; justify-content: center; }
   .team-edit-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tee-display { align-items: flex-start; flex-direction: column; }
   .tee-display-values { gap: 8px 12px; }

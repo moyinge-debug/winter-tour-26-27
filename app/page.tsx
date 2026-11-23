@@ -246,6 +246,13 @@ function getCourseSetups(courses?: CourseSetup[]): CourseSetup[] {
   );
 }
 
+function removePreloadedTees(courses?: CourseSetup[]): CourseSetup[] {
+  return (courses ?? []).map((course) => ({
+    ...course,
+    tees: course.tees.filter((tee) => !/^r\d+-(white|yellow|blue|red)$/.test(tee.id)),
+  }));
+}
+
 function scoreEntries(roundId: number, data: TournamentData): ResultRow[] {
   const tournamentRounds = data.rounds ?? rounds;
   const round = tournamentRounds.find((item) => item.id === roundId);
@@ -502,7 +509,7 @@ export default function Home() {
   const [teamPlayerTwo, setTeamPlayerTwo] = useState("");
   const [entryId, setEntryId] = useState("");
   const [strokes, setStrokes] = useState("");
-  const [selectedTeeId, setSelectedTeeId] = useState(defaultCourses[1].tees[0].id);
+  const [selectedTeeId, setSelectedTeeId] = useState("");
   const [editingScoreId, setEditingScoreId] = useState("");
   const [scoreMethod, setScoreMethod] = useState<"manual" | "scan">("manual");
   const [isScanning, setIsScanning] = useState(false);
@@ -533,6 +540,11 @@ export default function Home() {
   const [editingTeamId, setEditingTeamId] = useState("");
   const [editingRoundId, setEditingRoundId] = useState<number | null>(null);
   const [editingTeeId, setEditingTeeId] = useState("");
+  const [newRoundCourse, setNewRoundCourse] = useState("");
+  const [newRoundLocation, setNewRoundLocation] = useState("");
+  const [newRoundFormat, setNewRoundFormat] = useState<RoundFormat>("Single");
+  const [newRoundStartDate, setNewRoundStartDate] = useState("");
+  const [newRoundEndDate, setNewRoundEndDate] = useState("");
 
   useEffect(() => {
     try {
@@ -541,7 +553,7 @@ export default function Home() {
         const parsed: unknown = JSON.parse(saved);
         if (isValidData(parsed)) {
           const cleaned = addInitialPlayers(removeDemoData(parsed));
-          const savedCourses = cleaned.courses ?? [];
+          const savedCourses = removePreloadedTees(cleaned.courses);
           const courses = defaultCourses.map((defaultCourse) =>
             savedCourses.find((course) => course.roundId === defaultCourse.roundId) ?? defaultCourse,
           );
@@ -1183,6 +1195,75 @@ export default function Home() {
     showToast(`Runde ${round.id} er oppdatert.`);
   }
 
+  function handleAddRound(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!adminUnlocked) return;
+    const course = newRoundCourse.trim();
+    const location = newRoundLocation.trim();
+    if (!course || !location || !/^\d{4}-\d{2}-\d{2}$/.test(newRoundStartDate)
+      || !/^\d{4}-\d{2}-\d{2}$/.test(newRoundEndDate) || newRoundStartDate > newRoundEndDate) {
+      showToast("Fyll inn bane, sted og gyldige datoer i riktig rekkefølge.");
+      return;
+    }
+    setData((current) => {
+      const currentRounds = current.rounds ?? rounds;
+      const id = currentRounds.reduce((highest, round) => Math.max(highest, round.id), 0) + 1;
+      const round: Round = {
+        id,
+        course,
+        format: newRoundFormat,
+        startDate: newRoundStartDate,
+        endDate: newRoundEndDate,
+        location,
+        par: 72,
+      };
+      return {
+        ...current,
+        rounds: [...currentRounds, round].sort((a, b) => a.id - b.id),
+        courses: [
+          ...(current.courses ?? getCourseSetups(current.courses)),
+          {
+            roundId: id,
+            tees: [],
+          },
+        ].filter((setup, index, all) => all.findIndex((item) => item.roundId === setup.roundId) === index),
+      };
+    });
+    setNewRoundCourse("");
+    setNewRoundLocation("");
+    setNewRoundStartDate("");
+    setNewRoundEndDate("");
+    setNewRoundFormat("Single");
+    showToast("Ny runde er lagt til.");
+  }
+
+  function handleDeleteRound(round: Round) {
+    if (!adminUnlocked) return;
+    const currentRounds = tournamentRounds;
+    if (currentRounds.length <= 1) {
+      showToast("Turneringen må ha minst én runde.");
+      return;
+    }
+    if (!window.confirm(`Er du sikker på at du vil slette Runde ${round.id} – ${round.course}? Resultater, lag og tee-oppsett for runden fjernes.`)) return;
+    setData((current) => ({
+      ...current,
+      rounds: (current.rounds ?? rounds).filter((item) => item.id !== round.id),
+      teams: current.teams.filter((team) => team.roundId !== round.id),
+      scores: current.scores.filter((score) => score.roundId !== round.id),
+      courses: current.courses?.filter((course) => course.roundId !== round.id),
+      players: current.players.map((player) => {
+        if (!player.handicapOverrides?.[String(round.id)]) return player;
+        const handicapOverrides = { ...player.handicapOverrides };
+        delete handicapOverrides[String(round.id)];
+        return { ...player, handicapOverrides };
+      }),
+    }));
+    if (selectedRoundId === round.id) setSelectedRoundId(currentRounds.find((item) => item.id !== round.id)?.id ?? 1);
+    if (leaderboardRoundId === round.id) setLeaderboardRoundId(currentRounds.find((item) => item.id !== round.id)?.id ?? 1);
+    if (editingRoundId === round.id) setEditingRoundId(null);
+    showToast(`Runde ${round.id} er fjernet.`);
+  }
+
   function handleSaveHouseRules(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!adminUnlocked) return;
@@ -1355,7 +1436,7 @@ export default function Home() {
           <section className="content-panel" style={{ margin: "24px 0 16px" }} aria-label="Bane live nå">
             <div className="content-panel-header">
               <div>
-                <div className="panel-kicker">{activeRound ? "Live nå" : "Status"}</div>
+                <div className={`panel-kicker${activeRound ? " live-kicker" : ""}`}>{activeRound ? "Live nå" : "Status"}</div>
                 <h3>{activeRound?.course ?? "Ingen aktiv runde"}</h3>
                 <p>{activeRound
                   ? `Runde ${activeRound.id} · ${activeRound.location} · ${formatPeriod(activeRound)}`
@@ -1374,14 +1455,17 @@ export default function Home() {
             </div>
             {data.scores.length === 0 ? (
               <div className="leader-empty">Sesongens første score venter.<br />Registrer et resultat for å komme i gang.</div>
-            ) : overallLeaderboard.slice(0, 5).map(({ player, netScore, roundsPlayed }, index) => {
+            ) : overallLeaderboard.slice(0, 5).map(({ player, netScore, roundsPlayed, averageGrossScore }, index) => {
               const medal = roundsPlayed > 0 && index < 3 ? ["gold", "silver", "bronze"][index] : "";
               return (
                 <div className="leader-row" key={player.id}>
                   <span className={`rank-number${medal ? ` ${medal}` : ""}`}>{String(index + 1).padStart(2, "0")}</span>
                   <PlayerAvatar name={player.name} dark />
-                  <div className="leader-info"><div className={`leader-name${medal ? ` ${medal}` : ""}`}>{player.name}</div><div className="leader-sub">Start {player.handicap.toFixed(1)} · Nå {getTournamentHandicap(player, nextRound.id, data).toFixed(1)}</div></div>
-                  <div className="leader-total">{roundsPlayed ? formatRelativeScore(netScore) : "—"}<small>MOT PAR</small></div>
+                  <div className="leader-info"><div className={`leader-name${medal ? ` ${medal}` : ""}`}>{player.name}</div></div>
+                  <div className="leader-scores">
+                    <div className="leader-total">{roundsPlayed ? formatRelativeScore(netScore) : "—"}<small>TIL PAR NETTO</small></div>
+                    <div className="leader-total">{averageGrossScore === undefined ? "—" : formatScore(averageGrossScore)}<small>SNITT BRUTTO</small></div>
+                  </div>
                 </div>
               );
             })}
@@ -1397,19 +1481,27 @@ export default function Home() {
             </div>
             <div className="stats-grid">
               <StatCard label="Spillere" value={data.players.length.toString().padStart(2, "0")} note="I startfeltet" icon={<Users size={15} />} />
-              <StatCard label="Turneringsrunder" value="09" note="Nov 2026 — mar 2027" icon={<Flag size={15} />} />
+              <StatCard label="Turneringsrunder" value={String(tournamentRounds.length).padStart(2, "0")} note="Nov 2026 — mar 2027" icon={<Flag size={15} />} />
               <StatCard label="Registrerte scorekort" value={activeCount.toString().padStart(2, "0")} note="Resultater i systemet" icon={<Medal size={15} />} />
-              <StatCard label="Ferdigspilt" value={`${finishedCount} / 9`} note="Runder denne sesongen" icon={<Trophy size={15} />} />
+              <StatCard label="Ferdigspilt" value={`${finishedCount} / ${tournamentRounds.length}`} note="Runder denne sesongen" icon={<Trophy size={15} />} />
             </div>
             <div className="overview-grid">
               <section className="panel">
-                <div className="panel-head"><div><div className="panel-title">Turneringsprogram</div><div className="panel-kicker">Ni stopp. Én mester.</div></div><button className="subtle-link" onClick={() => changeView("scorecard")}>Scorekort <ArrowRight size={13} /></button></div>
+                <div className="panel-head"><div><div className="panel-title">Turneringsprogram</div><div className="panel-kicker">{tournamentRounds.length} stopp. Én mester.</div></div><button className="subtle-link" onClick={() => changeView("scorecard")}>Scorekort <ArrowRight size={13} /></button></div>
                 <div className="round-list">
                   {tournamentRounds.map((round) => <div className="round-admin-row" key={round.id}>
-                    <RoundRow round={round} scores={data.scores} active={round.id === nextRound.id} admin={adminUnlocked} onEdit={() => setEditingRoundId(round.id)} onSelect={() => { selectRound(round.id); setView("scorecard"); }} />
+                    <RoundRow round={round} scores={data.scores} active={round.id === nextRound.id} admin={adminUnlocked} onEdit={() => setEditingRoundId(round.id)} onDelete={() => handleDeleteRound(round)} onSelect={() => { selectRound(round.id); setView("scorecard"); }} />
                     {adminUnlocked && editingRoundId === round.id && <RoundEditor round={round} onSave={handleSaveRound} onCancel={() => setEditingRoundId(null)} />}
                   </div>)}
                 </div>
+                {adminUnlocked && <form className="add-round-form" onSubmit={handleAddRound}>
+                  <div className="field"><label htmlFor="new-round-course">Bane</label><input id="new-round-course" value={newRoundCourse} onChange={(event) => setNewRoundCourse(event.target.value)} placeholder="Banens navn" required /></div>
+                  <div className="field"><label htmlFor="new-round-location">Sted</label><input id="new-round-location" value={newRoundLocation} onChange={(event) => setNewRoundLocation(event.target.value)} placeholder="By, land" required /></div>
+                  <div className="field"><label htmlFor="new-round-format">Spilleformat</label><select id="new-round-format" value={newRoundFormat} onChange={(event) => { if (isRoundFormat(event.target.value)) setNewRoundFormat(event.target.value); }}>{ROUND_FORMATS.map((format) => <option key={format} value={format}>{format}</option>)}</select></div>
+                  <div className="field"><label htmlFor="new-round-start">Fra dato</label><input id="new-round-start" type="date" value={newRoundStartDate} onChange={(event) => setNewRoundStartDate(event.target.value)} required /></div>
+                  <div className="field"><label htmlFor="new-round-end">Til dato</label><input id="new-round-end" type="date" value={newRoundEndDate} onChange={(event) => setNewRoundEndDate(event.target.value)} required /></div>
+                  <button className="primary-button" type="submit"><Plus size={14} /> Legg til runde</button>
+                </form>}
               </section>
             </div>
           </>
@@ -1613,8 +1705,8 @@ export default function Home() {
               </div>
               {leaderboardMode === "overall" ? (
                 <>
-                  <div className="score-table-wrap"><table className="leaderboard-table"><thead><tr><th>Plass</th><th>Spiller</th><th>Score</th><th>Snitt brutto (singel)</th><th>Start-HCP</th><th>Turnerings-HCP</th></tr></thead><tbody>
-                    {overallLeaderboard.map(({ player, netScore, roundsPlayed, averageGrossScore }, index) => <tr key={player.id}><td className={index === 0 && roundsPlayed > 0 ? "trophy-rank" : "table-rank"}>{String(index + 1).padStart(2, "0")}{index === 0 && roundsPlayed > 0 ? "  ♛" : ""}</td><td><span className="player-inline"><PlayerAvatar name={player.name} dark />{player.name}</span></td><td className="leader-total-cell">{roundsPlayed ? formatRelativeScore(netScore) : "—"}</td><td>{averageGrossScore === undefined ? "—" : formatScore(averageGrossScore)}</td><td className="result-label">{player.handicap.toFixed(1)}</td><td>{getTournamentHandicap(player, nextRound.id, data).toFixed(1)}</td></tr>)}
+                  <div className="score-table-wrap"><table className="leaderboard-table"><thead><tr><th>Plass</th><th>Spiller</th><th>Til par Netto</th><th>Snitt brutto</th></tr></thead><tbody>
+                    {overallLeaderboard.map(({ player, netScore, roundsPlayed, averageGrossScore }, index) => <tr key={player.id}><td className={index === 0 && roundsPlayed > 0 ? "trophy-rank" : "table-rank"}>{String(index + 1).padStart(2, "0")}{index === 0 && roundsPlayed > 0 ? "  ♛" : ""}</td><td><span className="player-inline"><PlayerAvatar name={player.name} dark />{player.name}</span></td><td className="leader-total-cell">{roundsPlayed ? formatRelativeScore(netScore) : "—"}</td><td>{averageGrossScore === undefined ? "—" : formatScore(averageGrossScore)}</td></tr>)}
                   </tbody></table></div>
                   <div className="leaderboard-foot">Score er summen av netto score mot par fra registrerte runder; lavest sum vinner. Snitt brutto beregnes kun fra spillerens registrerte singelrunder. Lagresultater føres på begge spillerne.</div>
                 </>
@@ -1671,7 +1763,9 @@ export default function Home() {
               <div className="rules-panel-content">
                 <ul className="rules-list">
                   <li><strong>Start-HCP:</strong> Hver spiller starter turneringen med sitt utendørs handicap.</li>
-                  <li><strong>Spillehandicap (SHCP):</strong> Turnerings-HCP × (Slope / 113) + (Course Rating − Par), avrundet til nærmeste heltall for valgt tee.</li>
+                  <li><strong>Slik beregnes Spillehandicap:</strong> Turnerings-HCP × (Teeens slopeverdi ÷ 113) + (Teeens course rating − Teeens par). Resultatet avrundes til nærmeste heltall.</li>
+                  <li><strong>Eksempel:</strong> Hvis en spiller har Turnerings-HCP 18, og teeen har Slope 136, Course Rating 72,8 og Par 72, blir Spillehandicap: 18 × (136 ÷ 113) + (72,8 − 72) = 22,46 → 22.</li>
+                  <li><strong>Lag:</strong> I lagrunder beregnes Spillehandicap for hver spiller på laget, og gjennomsnittet av disse brukes i lagresultatet.</li>
                   <li><strong>Justering etter runden:</strong> Netto resultat mot par deles på 2 og legges til Turnerings-HCP. Justeringen avrundes til én desimal før neste runde.</li>
                 </ul>
                 <div className="rules-example"><strong>Eksempel</strong><p>Spiller du −2 netto på en runde, justeres handicappet ditt ned med −1.0 før neste runde. Spiller du +4 netto, justeres det opp med +2.0.</p></div>
@@ -1803,7 +1897,7 @@ function StatCard({ label, value, note, icon }: { label: string; value: string; 
   return <div className="stat-card"><div className="stat-top"><span>{label}</span><span className="stat-icon">{icon}</span></div><strong className="stat-value">{value}</strong><div className="stat-note">{note}</div></div>;
 }
 
-function RoundRow({ round, scores, active, admin, onEdit, onSelect }: { round: Round; scores: Score[]; active: boolean; admin: boolean; onEdit: () => void; onSelect: () => void }) {
+function RoundRow({ round, scores, active, admin, onEdit, onDelete, onSelect }: { round: Round; scores: Score[]; active: boolean; admin: boolean; onEdit: () => void; onDelete: () => void; onSelect: () => void }) {
   const status = getRoundStatus(round);
   const hasScores = scores.some((score) => score.roundId === round.id);
   const Icon = isTeamFormat(round.format) ? Users : UserRound;
@@ -1815,7 +1909,7 @@ function RoundRow({ round, scores, active, admin, onEdit, onSelect }: { round: R
         <span className={`status ${status}`}>{getStatusLabel(status)}</span>
         <span className="round-arrow"><ArrowRight size={13} /></span>
       </button>
-      {admin && <button className="icon-button" type="button" aria-label={`Rediger runde ${round.id}`} onClick={onEdit}><Pencil size={14} /></button>}
+      {admin && <div className="round-row-actions"><button className="icon-button" type="button" aria-label={`Rediger runde ${round.id}`} onClick={onEdit}><Pencil size={14} /></button><button className="icon-button danger" type="button" aria-label={`Slett runde ${round.id}`} onClick={onDelete}><Trash2 size={14} /></button></div>}
     </div>
   );
 }
