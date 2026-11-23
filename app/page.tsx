@@ -322,12 +322,20 @@ function getLeaderboard(data: TournamentData) {
       }
     }
   }
+  const tournamentRounds = data.rounds ?? rounds;
+  const currentRoundId = tournamentRounds.reduce(
+    (latest, round) => Math.max(latest, round.id),
+    0,
+  ) + 1;
   return data.players.map((player) => {
     const total = totals.get(player.id);
+    const currentHandicap = getTournamentHandicap(player, currentRoundId, data);
+    const handicapChange = player.handicap - currentHandicap;
     return {
       player,
       netScore: total?.netScore ?? 0,
       roundsPlayed: total?.roundsPlayed ?? 0,
+      handicapChange,
       averageGrossScore: total && total.singleRoundsPlayed > 0
         ? total.grossScore / total.singleRoundsPlayed
         : undefined,
@@ -1455,7 +1463,7 @@ export default function Home() {
             </div>
             {data.scores.length === 0 ? (
               <div className="leader-empty">Sesongens første score venter.<br />Registrer et resultat for å komme i gang.</div>
-            ) : overallLeaderboard.slice(0, 5).map(({ player, netScore, roundsPlayed, averageGrossScore }, index) => {
+            ) : overallLeaderboard.slice(0, 5).map(({ player, netScore, roundsPlayed, averageGrossScore, handicapChange }, index) => {
               const medal = roundsPlayed > 0 && index < 3 ? ["gold", "silver", "bronze"][index] : "";
               return (
                 <div className="leader-row" key={player.id}>
@@ -1463,10 +1471,7 @@ export default function Home() {
                   <PlayerAvatar name={player.name} dark />
                   <div className="leader-info">
                     <div className={`leader-name${medal ? ` ${medal}` : ""}`}>{player.name}</div>
-                    <div className="leader-sub">Endring HCP {(() => {
-                      const change = getTournamentHandicap(player, nextRound.id, data) - player.handicap;
-                      return `${change > 0 ? "+" : ""}${change.toFixed(1)}`;
-                    })()}</div>
+                    <div className="leader-sub">Endring HCP {handicapChange > 0 ? "+" : ""}{handicapChange.toFixed(1)}</div>
                   </div>
                   <div className="leader-scores">
                     <div className="leader-total">{roundsPlayed ? formatRelativeScore(netScore) : "—"}<small>TIL PAR NETTO</small></div>
@@ -1712,8 +1717,7 @@ export default function Home() {
               {leaderboardMode === "overall" ? (
                 <>
                   <div className="score-table-wrap"><table className="leaderboard-table"><thead><tr><th>Plass</th><th>Spiller</th><th>Til par Netto</th><th>Snitt brutto</th></tr></thead><tbody>
-                    {overallLeaderboard.map(({ player, netScore, roundsPlayed, averageGrossScore }, index) => {
-                      const handicapChange = getTournamentHandicap(player, nextRound.id, data) - player.handicap;
+                    {overallLeaderboard.map(({ player, netScore, roundsPlayed, averageGrossScore, handicapChange }, index) => {
                       return <tr key={player.id}><td className={index === 0 && roundsPlayed > 0 ? "trophy-rank" : "table-rank"}>{String(index + 1).padStart(2, "0")}{index === 0 && roundsPlayed > 0 ? "  ♛" : ""}</td><td><span className="player-inline"><PlayerAvatar name={player.name} dark /><span><span>{player.name}</span><small className="leaderboard-hcp-change">Endring HCP {handicapChange > 0 ? "+" : ""}{handicapChange.toFixed(1)}</small></span></span></td><td className="leader-total-cell">{roundsPlayed ? formatRelativeScore(netScore) : "—"}</td><td>{averageGrossScore === undefined ? "—" : formatScore(averageGrossScore)}</td></tr>;
                     })}
                   </tbody></table></div>
