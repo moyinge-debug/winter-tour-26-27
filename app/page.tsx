@@ -1461,7 +1461,13 @@ export default function Home() {
                 <div className="leader-row" key={player.id}>
                   <span className={`rank-number${medal ? ` ${medal}` : ""}`}>{String(index + 1).padStart(2, "0")}</span>
                   <PlayerAvatar name={player.name} dark />
-                  <div className="leader-info"><div className={`leader-name${medal ? ` ${medal}` : ""}`}>{player.name}</div></div>
+                  <div className="leader-info">
+                    <div className={`leader-name${medal ? ` ${medal}` : ""}`}>{player.name}</div>
+                    <div className="leader-sub">Endring HCP {(() => {
+                      const change = getTournamentHandicap(player, nextRound.id, data) - player.handicap;
+                      return `${change > 0 ? "+" : ""}${change.toFixed(1)}`;
+                    })()}</div>
+                  </div>
                   <div className="leader-scores">
                     <div className="leader-total">{roundsPlayed ? formatRelativeScore(netScore) : "—"}<small>TIL PAR NETTO</small></div>
                     <div className="leader-total">{averageGrossScore === undefined ? "—" : formatScore(averageGrossScore)}<small>SNITT BRUTTO</small></div>
@@ -1706,7 +1712,10 @@ export default function Home() {
               {leaderboardMode === "overall" ? (
                 <>
                   <div className="score-table-wrap"><table className="leaderboard-table"><thead><tr><th>Plass</th><th>Spiller</th><th>Til par Netto</th><th>Snitt brutto</th></tr></thead><tbody>
-                    {overallLeaderboard.map(({ player, netScore, roundsPlayed, averageGrossScore }, index) => <tr key={player.id}><td className={index === 0 && roundsPlayed > 0 ? "trophy-rank" : "table-rank"}>{String(index + 1).padStart(2, "0")}{index === 0 && roundsPlayed > 0 ? "  ♛" : ""}</td><td><span className="player-inline"><PlayerAvatar name={player.name} dark />{player.name}</span></td><td className="leader-total-cell">{roundsPlayed ? formatRelativeScore(netScore) : "—"}</td><td>{averageGrossScore === undefined ? "—" : formatScore(averageGrossScore)}</td></tr>)}
+                    {overallLeaderboard.map(({ player, netScore, roundsPlayed, averageGrossScore }, index) => {
+                      const handicapChange = getTournamentHandicap(player, nextRound.id, data) - player.handicap;
+                      return <tr key={player.id}><td className={index === 0 && roundsPlayed > 0 ? "trophy-rank" : "table-rank"}>{String(index + 1).padStart(2, "0")}{index === 0 && roundsPlayed > 0 ? "  ♛" : ""}</td><td><span className="player-inline"><PlayerAvatar name={player.name} dark /><span><span>{player.name}</span><small className="leaderboard-hcp-change">Endring HCP {handicapChange > 0 ? "+" : ""}{handicapChange.toFixed(1)}</small></span></span></td><td className="leader-total-cell">{roundsPlayed ? formatRelativeScore(netScore) : "—"}</td><td>{averageGrossScore === undefined ? "—" : formatScore(averageGrossScore)}</td></tr>;
+                    })}
                   </tbody></table></div>
                   <div className="leaderboard-foot">Score er summen av netto score mot par fra registrerte runder; lavest sum vinner. Snitt brutto beregnes kun fra spillerens registrerte singelrunder. Lagresultater føres på begge spillerne.</div>
                 </>
