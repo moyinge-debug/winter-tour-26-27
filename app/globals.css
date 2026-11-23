@@ -44,6 +44,7 @@ button { cursor: pointer; }
 }
 
 .brand { display: flex; align-items: center; gap: 12px; }
+.brand-name { margin: 0; color: var(--ink); font: 700 22px/1 Arial, Helvetica, sans-serif; }
 .brand-mark {
   width: 54px; height: 54px; display: block; object-fit: contain;
 }
@@ -137,11 +138,14 @@ button { cursor: pointer; }
 .leader-row { display: flex; align-items: center; gap: 10px; padding: 12px 17px; border-bottom: 1px solid rgba(255,255,255,.1); }
 .leader-row:last-child { border-bottom: 0; }
 .rank-number { width: 23px; color: #aeb2b6; font: 12px Arial, Helvetica, sans-serif; }
-.rank-number.gold { color: var(--accent); }
+.rank-number.gold, .leader-name.gold { color: #f5c451; }
+.rank-number.silver, .leader-name.silver { color: #c5ccd3; }
+.rank-number.bronze, .leader-name.bronze { color: #cd8d5b; }
 .player-avatar { width: 31px; height: 31px; border-radius: 50%; display: grid; place-items: center; background: #fff0e9; color: #c64418; font-size: 9px; font-weight: 700; flex: 0 0 auto; }
 .player-avatar.dark { background: #34373a; color: #fff; }
 .leader-info { min-width: 0; flex: 1; }
-.leader-name { font-size: 11px; color: #fff; }
+.leader-name { font-size: 14px; color: #fff; }
+.leader-name.gold, .leader-name.silver, .leader-name.bronze { font-weight: 700; }
 .leader-sub { color: #aeb2b6; font-size: 9px; margin-top: 4px; }
 .leader-total { text-align: right; color: var(--accent); font: 600 17px Arial, Helvetica, sans-serif; }
 .leader-total small { display: block; color: #aeb2b6; font: 8px Arial, sans-serif; margin-top: 3px; }
@@ -432,7 +436,7 @@ button { cursor: pointer; }
   .admin-topbar { gap: 4px; }
   .admin-status { font-size: 7px; padding: 6px; }
   .avatar { width: 30px; height: 30px; }
-  .brand-name { font-size: 12px; }
+  .brand-name { font-size: 16px; }
   .hero h1 { font-size: 31px; }
   .hero-round { display: none; }
   .round-row { grid-template-columns: 31px minmax(0,1fr) auto; gap: 8px; }
