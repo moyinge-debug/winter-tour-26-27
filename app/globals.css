@@ -49,6 +49,11 @@ button { cursor: pointer; }
   width: 54px; height: 54px; display: block; object-fit: contain;
 }
 .topbar-right { display: flex; align-items: center; gap: 16px; }
+.storage-status { color: var(--muted); font-size: 9px; white-space: nowrap; }
+.storage-status.saving { color: var(--accent); }
+.storage-status.error { color: #b42318; font-weight: 700; }
+.storage-alert { margin-top: 15px; padding: 11px 14px; border: 1px solid #efc3b8; background: #fff5f3; color: #8d291b; font-size: 11px; line-height: 1.5; }
+.storage-loading { padding-top: 40px; color: var(--muted); font-size: 13px; }
 .admin-trigger, .admin-lock-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 8px 11px; border: 1px solid var(--line); border-radius: 3px; background: var(--surface); color: var(--ink-soft); font-size: 10px; font-weight: 700; }
 .admin-trigger:hover, .admin-lock-button:hover { border-color: var(--accent); color: var(--accent); }
 .admin-topbar { display: flex; align-items: center; gap: 8px; }

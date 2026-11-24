@@ -29,6 +29,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { defaultCourses, formatPeriod, getRoundStatus, initialPlayers, isTeamFormat, rounds } from "@/lib/data";
 import { getCourseSetup, getHandicapHistory, getPlayingHandicap, getTournamentHandicap, getTournamentHandicapSnapshot, getTee } from "@/lib/handicap";
+import { getSharedStorageConfiguration, loadOrCreateSharedTournamentData, saveSharedTournamentData } from "@/lib/shared-storage";
 import type { AttendanceStatus, CourseSetup, Player, Round, RoundFormat, Score, Team, Tee, TournamentData, View } from "@/lib/types";
 
 const STORAGE_KEY = "winter-tour-26-27";
@@ -494,6 +495,27 @@ function removeDemoData(data: TournamentData): TournamentData {
   };
 }
 
+function getInitialTournamentData(): TournamentData {
+  return {
+    players: initialPlayers,
+    teams: [],
+    scores: [],
+    playerRosterVersion: PLAYER_ROSTER_VERSION,
+    courses: defaultCourses,
+    rounds,
+  };
+}
+
+function normalizeTournamentData(data: TournamentData): TournamentData {
+  const cleaned = addInitialPlayers(removeDemoData(data));
+  const savedCourses = removePreloadedTees(cleaned.courses);
+  return {
+    ...cleaned,
+    courses: getCourseSetups(savedCourses),
+    rounds: cleaned.rounds?.length ? cleaned.rounds : rounds,
+  };
+}
+
 function getStatusLabel(status: ReturnType<typeof getRoundStatus>) {
   return status === "active" ? "Aktiv" : status === "completed" ? "Ferdig" : "Kommende";
 }
@@ -506,6 +528,8 @@ export default function Home() {
   const [data, setData] = useState<TournamentData>({ players: [], teams: [], scores: [], courses: defaultCourses, rounds });
   const [view, setView] = useState<View>("overview");
   const [ready, setReady] = useState(false);
+  const [storageStatus, setStorageStatus] = useState<"local" | "saving" | "shared" | "error">("local");
+  const [storageError, setStorageError] = useState("");
   const [toast, setToast] = useState("");
   const [selectedRoundId, setSelectedRoundId] = useState(2);
   const [leaderboardRoundId, setLeaderboardRoundId] = useState(1);
@@ -553,54 +577,106 @@ export default function Home() {
   const [newRoundFormat, setNewRoundFormat] = useState<RoundFormat>("Single");
   const [newRoundStartDate, setNewRoundStartDate] = useState("");
   const [newRoundEndDate, setNewRoundEndDate] = useState("");
+  const sharedStorageReady = useRef(false);
+  const sharedSaveQueue = useRef<Promise<void>>(Promise.resolve());
+  const sharedSaveGeneration = useRef(0);
 
   useEffect(() => {
+    let cancelled = false;
+    let localData: TournamentData | undefined;
+
     try {
       const saved = window.localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed: unknown = JSON.parse(saved);
         if (isValidData(parsed)) {
-          const cleaned = addInitialPlayers(removeDemoData(parsed));
-          const savedCourses = removePreloadedTees(cleaned.courses);
-          const courses = defaultCourses.map((defaultCourse) =>
-            savedCourses.find((course) => course.roundId === defaultCourse.roundId) ?? defaultCourse,
-          );
-          setData({ ...cleaned, courses, rounds: cleaned.rounds?.length ? cleaned.rounds : rounds });
+          localData = normalizeTournamentData(parsed);
+        } else {
+          console.error("Saved tournament data has an invalid format.");
         }
-      } else {
-        setData({
-          players: initialPlayers,
-          teams: [],
-          scores: [],
-          playerRosterVersion: PLAYER_ROSTER_VERSION,
-          courses: defaultCourses,
-          rounds,
-        });
       }
     } catch (error) {
       console.error("Could not load tournament data from localStorage.", error);
-    } finally {
-      setReady(true);
     }
+
+    async function initializeData() {
+      const seed = localData ?? getInitialTournamentData();
+      const configuration = getSharedStorageConfiguration();
+
+      try {
+        if (configuration === "incomplete") {
+          throw new Error("Set both NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY.");
+        }
+        if (configuration === "enabled") {
+          const sharedData = await loadOrCreateSharedTournamentData(seed);
+          if (!isValidData(sharedData)) {
+            throw new Error("The shared tournament data has an invalid format.");
+          }
+          const normalized = normalizeTournamentData(sharedData);
+          if (!cancelled) {
+            sharedStorageReady.current = true;
+            setData(normalized);
+            setStorageStatus("shared");
+            setStorageError("");
+          }
+        } else if (!cancelled) {
+          setData(seed);
+          setStorageStatus("local");
+        }
+      } catch (error) {
+        console.error("Could not load shared tournament data.", error);
+        if (!cancelled) {
+          setData(seed);
+          setStorageStatus("error");
+          setStorageError("Felles lagring kunne ikke lastes. Dataene vises fra denne enheten og blir ikke delt.");
+          showToast("Kunne ikke koble til felles lagring.");
+        }
+      } finally {
+        if (!cancelled) setReady(true);
+      }
+    }
+
+    void initializeData();
     try {
       setAdminUnlocked(window.sessionStorage.getItem(ADMIN_SESSION_KEY) === "unlocked");
     } catch (error) {
       console.error("Could not read admin session state.", error);
       showToast("Kunne ikke lese admin-økten fra nettleseren.");
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
     if (!ready) return;
+    const storedData = {
+      ...data,
+      roundHandicaps: getTournamentHandicapSnapshot(data.players, data),
+    };
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        ...data,
-        roundHandicaps: getTournamentHandicapSnapshot(data.players, data),
-      }));
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(storedData));
     } catch (error) {
       console.error("Could not save tournament data to localStorage.", error);
       showToast("Kunne ikke lagre endringen i nettleseren.");
     }
+    if (!sharedStorageReady.current) return;
+    const saveGeneration = ++sharedSaveGeneration.current;
+    setStorageStatus("saving");
+    sharedSaveQueue.current = sharedSaveQueue.current
+      .then(async () => {
+        if (!sharedStorageReady.current) return;
+        await saveSharedTournamentData(storedData);
+        if (saveGeneration === sharedSaveGeneration.current) setStorageStatus("shared");
+      })
+      .catch((error: unknown) => {
+        console.error("Could not save tournament data to shared storage.", error);
+        sharedStorageReady.current = false;
+        setStorageStatus("error");
+        setStorageError("Felles lagring kunne ikke oppdateres. Endringene er bare lagret på denne enheten.");
+        showToast("Kunne ikke lagre til felles lagring.");
+      });
     // The timer is intentionally scoped to the current toast message.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, ready]);
@@ -1367,6 +1443,10 @@ export default function Home() {
 
   const playerOptions = data.players.filter((player) => !selectedRoundTeams.some((team) => team.playerIds.includes(player.id)));
 
+  if (!ready) {
+    return <div className="app-shell"><main className="page-wrap storage-loading">Laster turneringsdata …</main></div>;
+  }
+
   return (
     <div className="app-shell">
       <header className="page-wrap topbar">
@@ -1376,6 +1456,9 @@ export default function Home() {
         </div>
         <div className="topbar-right">
           <span className="season-pill"><CalendarDays size={13} /> 9 runder <span style={{ color: "#f15a24" }}>·</span> nov – mar</span>
+          <span className={`storage-status${storageStatus === "error" ? " error" : storageStatus === "saving" ? " saving" : ""}`} title={storageError || undefined}>
+            {storageStatus === "shared" ? "Felles lagring" : storageStatus === "saving" ? "Synkroniserer …" : storageStatus === "error" ? "Synkronisering feilet" : "Kun på denne enheten"}
+          </span>
           {adminUnlocked ? (
             <div className="admin-topbar"><span className="admin-status">Admin-modus aktiv</span><button className="admin-lock-button" type="button" onClick={handleAdminLock}><Lock size={13} /> Lås</button></div>
           ) : (
@@ -1385,6 +1468,7 @@ export default function Home() {
       </header>
 
       <main className="page-wrap">
+        {storageStatus === "error" && <div className="storage-alert" role="alert">{storageError} Last siden på nytt når tilkoblingen er tilbake.</div>}
         <section className="hero">
           <div className="hero-content">
             <div className="eyebrow">Sesongen 2026 — 2027</div>
