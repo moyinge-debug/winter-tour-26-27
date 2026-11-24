@@ -133,6 +133,8 @@ button { cursor: pointer; }
 .round-number { width: 31px; height: 31px; display: grid; place-items: center; border: 1px solid #dfe1e3; border-radius: 50%; color: #555b61; font: 12px Arial, Helvetica, sans-serif; }
 .round-row.active-row .round-number { color: #fff; background: var(--accent); border-color: var(--accent); }
 .round-name { font: 600 14px Arial, Helvetica, sans-serif; color: var(--ink); }
+.round-tee-name { color: var(--muted); font-size: 11px; font-weight: 500; }
+.course-tee-label { display: inline-block; margin-left: 10px; color: var(--accent); font-size: 12px; font-weight: 700; }
 .round-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 5px; color: var(--muted); font-size: 9px; }
 .format-tag { display: inline-flex; align-items: center; gap: 4px; color: #4b5055; }
 .status { font-size: 9px; border-radius: 20px; padding: 5px 8px; white-space: nowrap; }

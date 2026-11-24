@@ -741,6 +741,7 @@ export default function Home() {
   const overallLeaderboard = useMemo(() => getLeaderboard(data), [data]);
   const activeRound = tournamentRounds.find((round) => getRoundStatus(round) === "active");
   const nextRound = activeRound ?? tournamentRounds.find((round) => getRoundStatus(round) === "upcoming") ?? tournamentRounds[0];
+  const activeTeeName = activeRound ? getTee(data.courses, activeRound.id)?.name : undefined;
   const finishedCount = tournamentRounds.filter((round) => getRoundStatus(round) === "completed").length;
   const activeCount = data.scores.length;
   const storageSizeBytes = JSON.stringify({
@@ -1529,7 +1530,7 @@ export default function Home() {
             <div className="content-panel-header">
               <div>
                 <div className={`panel-kicker${activeRound ? " live-kicker" : ""}`}>{activeRound ? "Live nå" : "Status"}</div>
-                <h3>{activeRound?.course ?? "Ingen aktiv runde"}</h3>
+                <h3>{activeRound?.course ?? "Ingen aktiv runde"}{activeTeeName && <span className="course-tee-label">Tee: {activeTeeName}</span>}</h3>
                 <p>{activeRound
                   ? `Runde ${activeRound.id} · ${activeRound.location} · ${formatPeriod(activeRound)}`
                   : "Ingen bane spilles akkurat nå."}</p>
@@ -1585,7 +1586,7 @@ export default function Home() {
                 <div className="panel-head"><div><div className="panel-title">Turneringsprogram</div><div className="panel-kicker">{tournamentRounds.length} stopp. Én mester.</div></div><button className="subtle-link" onClick={() => changeView("scorecard")}>Scorekort <ArrowRight size={13} /></button></div>
                 <div className="round-list">
                   {tournamentRounds.map((round) => <div className="round-admin-row" key={round.id}>
-                    <RoundRow round={round} scores={data.scores} active={round.id === nextRound.id} admin={adminUnlocked} onEdit={() => setEditingRoundId(round.id)} onDelete={() => handleDeleteRound(round)} onSelect={() => { selectRound(round.id); setView("scorecard"); }} />
+                    <RoundRow round={round} teeName={getTee(data.courses, round.id)?.name} scores={data.scores} active={round.id === nextRound.id} admin={adminUnlocked} onEdit={() => setEditingRoundId(round.id)} onDelete={() => handleDeleteRound(round)} onSelect={() => { selectRound(round.id); setView("scorecard"); }} />
                     {adminUnlocked && editingRoundId === round.id && <RoundEditor round={round} onSave={handleSaveRound} onCancel={() => setEditingRoundId(null)} />}
                   </div>)}
                 </div>
@@ -1994,7 +1995,7 @@ function StatCard({ label, value, note, icon }: { label: string; value: string; 
   return <div className="stat-card"><div className="stat-top"><span>{label}</span><span className="stat-icon">{icon}</span></div><strong className="stat-value">{value}</strong><div className="stat-note">{note}</div></div>;
 }
 
-function RoundRow({ round, scores, active, admin, onEdit, onDelete, onSelect }: { round: Round; scores: Score[]; active: boolean; admin: boolean; onEdit: () => void; onDelete: () => void; onSelect: () => void }) {
+function RoundRow({ round, teeName, scores, active, admin, onEdit, onDelete, onSelect }: { round: Round; teeName?: string; scores: Score[]; active: boolean; admin: boolean; onEdit: () => void; onDelete: () => void; onSelect: () => void }) {
   const status = getRoundStatus(round);
   const hasScores = scores.some((score) => score.roundId === round.id);
   const Icon = isTeamFormat(round.format) ? Users : UserRound;
@@ -2002,7 +2003,7 @@ function RoundRow({ round, scores, active, admin, onEdit, onDelete, onSelect }: 
     <div className="round-row-with-actions">
       <button className={`round-row${active ? " active-row" : ""}`} onClick={onSelect} style={{ width: "100%", textAlign: "left", background: "none", border: 0 }}>
         <span className="round-number">{String(round.id).padStart(2, "0")}</span>
-        <span><span className="round-name">{round.course}</span><span className="round-meta"><span>{formatPeriod(round)}</span><span className="format-tag"><Icon size={11} /> {round.format}</span>{hasScores && <span style={{ color: "#f15a24" }}>· Scorekort registrert</span>}</span></span>
+        <span><span className="round-name">{round.course}{teeName && <span className="round-tee-name"> · Tee: {teeName}</span>}</span><span className="round-meta"><span>{formatPeriod(round)}</span><span className="format-tag"><Icon size={11} /> {round.format}</span>{hasScores && <span style={{ color: "#f15a24" }}>· Scorekort registrert</span>}</span></span>
         <span className={`status ${status}`}>{getStatusLabel(status)}</span>
         <span className="round-arrow"><ArrowRight size={13} /></span>
       </button>
